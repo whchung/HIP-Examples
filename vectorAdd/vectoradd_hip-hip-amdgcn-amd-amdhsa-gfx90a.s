@@ -6,18 +6,17 @@
 	.type	_Z15vectoradd_floatPfPKfS1_ii,@function
 _Z15vectoradd_floatPfPKfS1_ii:          ; @_Z15vectoradd_floatPfPKfS1_ii
 ; %bb.0:
-	;s_load_dword s2, s[4:5], 0x4
-	;s_load_dwordx2 s[0:1], s[6:7], 0x0
-	s_load_dwordx2 s[4:5], s[6:7], 0x0
-	v_mov_b32_e32 v3, 0
-	;v_mov_b32_e32 v0, 0xdeadbeef
-	v_mov_b32_e32 v0, s0
-	;v_mov_b32_e32 v1, s8
-	v_mov_b32_e32 v1, s1
+	s_load_dwordx2 s[0:1], s[6:7], 0x0
+	s_load_dword s2, s[4:5], 0x4
+	v_mov_b32_e32 v2, 0
+	v_mov_b32_e32 v0, 0xdeadbeef
+	v_mov_b32_e32 v1, s8
 	s_waitcnt lgkmcnt(0)
-	;s_and_b32 s2, s2, 0xffff
-	v_mov_b32_e32 v2, s2
-	global_store_dwordx3 v3, v[0:2], s[4:5]
+	global_store_dwordx2 v2, v[0:1], s[0:1]
+	s_and_b32 s2, s2, 0xffff
+	v_mov_b32_e32 v0, s2
+	v_mov_b32_e32 v1, s2
+	global_store_dwordx2 v2, v[0:1], s[0:1] offset:8
 	s_endpgm
 	.section	.rodata,#alloc
 	.p2align	6
@@ -39,7 +38,7 @@ _Z15vectoradd_floatPfPKfS1_ii:          ; @_Z15vectoradd_floatPfPKfS1_ii
 		.amdhsa_system_sgpr_workgroup_id_z 0
 		.amdhsa_system_sgpr_workgroup_info 0
 		.amdhsa_system_vgpr_workitem_id 0
-		.amdhsa_next_free_vgpr 4
+		.amdhsa_next_free_vgpr 3
 		.amdhsa_next_free_sgpr 9
 		.amdhsa_accum_offset 4
 		.amdhsa_reserve_vcc 0
@@ -67,11 +66,11 @@ _Z15vectoradd_floatPfPKfS1_ii:          ; @_Z15vectoradd_floatPfPKfS1_ii
                                         ; -- End function
 	.section	.AMDGPU.csdata
 ; Kernel info:
-; codeLenInByte = 60
+; codeLenInByte = 72
 ; NumSgprs: 9
-; NumVgprs: 4
+; NumVgprs: 3
 ; NumAgprs: 0
-; TotalNumVgprs: 4
+; TotalNumVgprs: 3
 ; ScratchSize: 0
 ; MemoryBound: 0
 ; FloatMode: 240
@@ -80,7 +79,7 @@ _Z15vectoradd_floatPfPKfS1_ii:          ; @_Z15vectoradd_floatPfPKfS1_ii
 ; SGPRBlocks: 1
 ; VGPRBlocks: 0
 ; NumSGPRsForWavesPerEU: 9
-; NumVGPRsForWavesPerEU: 4
+; NumVGPRsForWavesPerEU: 3
 ; AccumOffset: 4
 ; Occupancy: 8
 ; WaveLimiterHint : 0
@@ -136,7 +135,7 @@ amdhsa.kernels:
     .sgpr_count:     9
     .sgpr_spill_count: 0
     .symbol:         _Z15vectoradd_floatPfPKfS1_ii.kd
-    .vgpr_count:     4
+    .vgpr_count:     3
     .vgpr_spill_count: 0
     .wavefront_size: 64
 amdhsa.target:   amdgcn-amd-amdhsa--gfx90a
