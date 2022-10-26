@@ -43,11 +43,18 @@ THE SOFTWARE.
 #define THREADS_PER_BLOCK_Y  16
 #define THREADS_PER_BLOCK_Z  1
 
+#define TEST_111 (0)
+
 __global__ void 
 vectoradd_float(float* __restrict__ a, const float* __restrict__ b, const float* __restrict__ c, int width, int height) 
 
   {
- 
+#if TEST_111
+      reinterpret_cast<unsigned int*>(a)[0] = 0xDEADBEEF;
+      reinterpret_cast<unsigned int*>(a)[1] = hipBlockIdx_x;
+      reinterpret_cast<unsigned int*>(a)[2] = hipBlockDim_x;
+#else
+
       int x = hipBlockDim_x * hipBlockIdx_x + hipThreadIdx_x;
       int y = hipBlockDim_y * hipBlockIdx_y + hipThreadIdx_y;
 
@@ -55,9 +62,7 @@ vectoradd_float(float* __restrict__ a, const float* __restrict__ b, const float*
       if ( i < (width * height)) {
         a[i] = b[i] + c[i];
       }
-
-
-
+#endif
   }
 
 #if 0
@@ -106,6 +111,7 @@ int main() {
   
   // initialize the input data
   for (i = 0; i < NUM; i++) {
+    hostA[i] = 0.0f;
     hostB[i] = (float)i;
     hostC[i] = (float)i*100.0f;
   }
@@ -117,16 +123,27 @@ int main() {
   HIP_ASSERT(hipMemcpy(deviceB, hostB, NUM*sizeof(float), hipMemcpyHostToDevice));
   HIP_ASSERT(hipMemcpy(deviceC, hostC, NUM*sizeof(float), hipMemcpyHostToDevice));
 
-
-  hipLaunchKernelGGL(vectoradd_float, 
+#if TEST_111
+  hipLaunchKernelGGL(vectoradd_float,
+                  dim3(1, 1, 1), dim3(1, 1, 1),
+                  0, 0,
+                  deviceA ,deviceB ,deviceC ,WIDTH ,HEIGHT);
+#else
+  hipLaunchKernelGGL(vectoradd_float,
                   dim3(WIDTH/THREADS_PER_BLOCK_X, HEIGHT/THREADS_PER_BLOCK_Y),
                   dim3(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y),
                   0, 0,
                   deviceA ,deviceB ,deviceC ,WIDTH ,HEIGHT);
+#endif
 
 
   HIP_ASSERT(hipMemcpy(hostA, deviceA, NUM*sizeof(float), hipMemcpyDeviceToHost));
 
+#if TEST_111
+  printf("a[0]: %08X\n", reinterpret_cast<unsigned int*>(hostA)[0]);
+  printf("a[1]: %08X\n", reinterpret_cast<unsigned int*>(hostA)[1]);
+  printf("a[2]: %08X\n", reinterpret_cast<unsigned int*>(hostA)[2]);
+#else
   // verify the results
   errors = 0;
   for (i = 0; i < NUM; i++) {
@@ -139,6 +156,7 @@ int main() {
   } else {
       printf ("PASSED!\n");
   }
+#endif
 
   HIP_ASSERT(hipFree(deviceA));
   HIP_ASSERT(hipFree(deviceB));

@@ -22,8 +22,8 @@ CXXFLAGS =-g
 CXX=$(HIPCC)
 
 
-$(EXECUTABLE): $(OBJECTS) 
-	$(HIPCC) $(OBJECTS) -o $@
+$(EXECUTABLE):
+	$(HIPCC) $(SOURCES) -o $@ -save-temps
 
 
 test: $(EXECUTABLE)
@@ -34,5 +34,5 @@ clean:
 	rm -f $(EXECUTABLE)
 	rm -f $(OBJECTS)
 	rm -f $(HIP_PATH)/src/*.o
-
+	rm -f *.o *.cui *.s *.bc *.hipfb *.out *.resolution.txt
 
