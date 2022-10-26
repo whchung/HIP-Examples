@@ -43,7 +43,7 @@ THE SOFTWARE.
 #define THREADS_PER_BLOCK_Y  16
 #define THREADS_PER_BLOCK_Z  1
 
-#define TEST_111 (0)
+#define TEST_111 (1)
 
 __global__ void 
 vectoradd_float(float* __restrict__ a, const float* __restrict__ b, const float* __restrict__ c, int width, int height) 
