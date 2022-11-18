@@ -39,29 +39,28 @@ THE SOFTWARE.
 
 #define NUM       (WIDTH*HEIGHT)
 
-#define THREADS_PER_BLOCK_X  16
-#define THREADS_PER_BLOCK_Y  16
+#define THREADS_PER_BLOCK_X  256
+#define THREADS_PER_BLOCK_Y  1
 #define THREADS_PER_BLOCK_Z  1
 
-#define TEST_111 (1)
+#define TEST_111 (0)
 
 __global__ void 
-vectoradd_float(float* __restrict__ a, const float* __restrict__ b, const float* __restrict__ c, int width, int height) 
+vectoradd_float(const float* __restrict__ a, const float* __restrict__ b, float* __restrict__ c)
 
   {
 #if TEST_111
-      reinterpret_cast<unsigned int*>(a)[0] = 0xDEADBEEF;
-      reinterpret_cast<unsigned int*>(a)[1] = hipBlockIdx_x;
-      reinterpret_cast<unsigned int*>(a)[2] = hipBlockDim_x;
+      reinterpret_cast<unsigned int*>(c)[0] = 0xDEADBEEF;
+      reinterpret_cast<unsigned int*>(c)[1] = hipBlockIdx_x;
+      reinterpret_cast<unsigned int*>(c)[2] = hipBlockDim_x;
+      reinterpret_cast<unsigned int*>(c)[3] = hipBlockDim_x;
 #else
 
-      int x = hipBlockDim_x * hipBlockIdx_x + hipThreadIdx_x;
-      int y = hipBlockDim_y * hipBlockIdx_y + hipThreadIdx_y;
+      int x = THREADS_PER_BLOCK_X * hipBlockIdx_x + hipThreadIdx_x;
+      int y = THREADS_PER_BLOCK_Y * hipBlockIdx_y + hipThreadIdx_y;
 
-      int i = y * width + x;
-      if ( i < (width * height)) {
-        a[i] = b[i] + c[i];
-      }
+      int i = y * WIDTH + x;
+      c[i] = a[i] + b[i];
 #endif
   }
 
@@ -111,17 +110,17 @@ int main() {
   
   // initialize the input data
   for (i = 0; i < NUM; i++) {
-    hostA[i] = 0.0f;
-    hostB[i] = (float)i;
-    hostC[i] = (float)i*100.0f;
+    hostA[i] = (float)i;
+    hostB[i] = (float)i*100.0f;
+    hostC[i] = 0.0f;
   }
   
   HIP_ASSERT(hipMalloc((void**)&deviceA, NUM * sizeof(float)));
   HIP_ASSERT(hipMalloc((void**)&deviceB, NUM * sizeof(float)));
   HIP_ASSERT(hipMalloc((void**)&deviceC, NUM * sizeof(float)));
   
+  HIP_ASSERT(hipMemcpy(deviceA, hostA, NUM*sizeof(float), hipMemcpyHostToDevice));
   HIP_ASSERT(hipMemcpy(deviceB, hostB, NUM*sizeof(float), hipMemcpyHostToDevice));
-  HIP_ASSERT(hipMemcpy(deviceC, hostC, NUM*sizeof(float), hipMemcpyHostToDevice));
 
 #if TEST_111
   hipLaunchKernelGGL(vectoradd_float,
@@ -133,21 +132,23 @@ int main() {
                   dim3(WIDTH/THREADS_PER_BLOCK_X, HEIGHT/THREADS_PER_BLOCK_Y),
                   dim3(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y),
                   0, 0,
-                  deviceA ,deviceB ,deviceC ,WIDTH ,HEIGHT);
+                  deviceA ,deviceB ,deviceC);
+                  //deviceA ,deviceB ,deviceC ,WIDTH ,HEIGHT);
 #endif
 
 
-  HIP_ASSERT(hipMemcpy(hostA, deviceA, NUM*sizeof(float), hipMemcpyDeviceToHost));
+  HIP_ASSERT(hipMemcpy(hostC, deviceC, NUM*sizeof(float), hipMemcpyDeviceToHost));
 
 #if TEST_111
-  printf("a[0]: %08X\n", reinterpret_cast<unsigned int*>(hostA)[0]);
-  printf("a[1]: %08X\n", reinterpret_cast<unsigned int*>(hostA)[1]);
-  printf("a[2]: %08X\n", reinterpret_cast<unsigned int*>(hostA)[2]);
+  printf("c[0]: %08X\n", reinterpret_cast<unsigned int*>(hostC)[0]);
+  printf("c[1]: %08X\n", reinterpret_cast<unsigned int*>(hostC)[1]);
+  printf("c[2]: %08X\n", reinterpret_cast<unsigned int*>(hostC)[2]);
+  printf("c[3]: %08X\n", reinterpret_cast<unsigned int*>(hostC)[3]);
 #else
   // verify the results
   errors = 0;
   for (i = 0; i < NUM; i++) {
-    if (hostA[i] != (hostB[i] + hostC[i])) {
+    if (hostC[i] != (hostA[i] + hostB[i])) {
       errors++;
     }
   }

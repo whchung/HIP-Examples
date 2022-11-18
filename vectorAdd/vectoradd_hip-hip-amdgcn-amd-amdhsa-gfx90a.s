@@ -1,32 +1,42 @@
 	.text
 	.amdgcn_target "amdgcn-amd-amdhsa--gfx90a"
-	.protected	_Z15vectoradd_floatPfPKfS1_ii ; -- Begin function _Z15vectoradd_floatPfPKfS1_ii
-	.globl	_Z15vectoradd_floatPfPKfS1_ii
+	.protected	_Z15vectoradd_floatPKfS0_Pf ; -- Begin function _Z15vectoradd_floatPKfS0_Pf
+	.globl	_Z15vectoradd_floatPKfS0_Pf
 	.p2align	8
-	.type	_Z15vectoradd_floatPfPKfS1_ii,@function
-_Z15vectoradd_floatPfPKfS1_ii:          ; @_Z15vectoradd_floatPfPKfS1_ii
-; %bb.0:
-	s_load_dwordx2 s[0:1], s[6:7], 0x0
-	s_load_dword s2, s[4:5], 0x4
-	v_mov_b32_e32 v2, 0
-	v_mov_b32_e32 v0, 0xdeadbeef
-	v_mov_b32_e32 v1, s8
-	s_waitcnt lgkmcnt(0)
-	global_store_dwordx2 v2, v[0:1], s[0:1]
-	s_and_b32 s2, s2, 0xffff
-	v_mov_b32_e32 v0, s2
-	v_mov_b32_e32 v1, s2
-	global_store_dwordx2 v2, v[0:1], s[0:1] offset:8
+	.type	_Z15vectoradd_floatPKfS0_Pf,@function
+_Z15vectoradd_floatPKfS0_Pf:            ; @_Z15vectoradd_floatPKfS0_Pf
+; %bb.0:                                ; %entry
+	v_bfe_u32 v1, v0, 10, 10
+	s_lshl_b32 s0, s12, 8
+	v_add_lshl_u32 v1, s13, v1, 10
+	v_and_b32_e32 v0, 0x3ff, v0
+	v_add3_u32 v0, s0, v0, v1
+	v_ashrrev_i32_e32 v1, 31, v0
+	v_lshlrev_b64 v[0:1], 2, v[0:1]
+	v_mov_b32_e32 v3, s5
+	v_add_co_u32_e32 v2, vcc, s4, v0
+	v_addc_co_u32_e32 v3, vcc, v3, v1, vcc
+	global_load_dword v4, v[2:3], off
+	v_mov_b32_e32 v3, s7
+	v_add_co_u32_e32 v2, vcc, s6, v0
+	v_addc_co_u32_e32 v3, vcc, v3, v1, vcc
+	global_load_dword v2, v[2:3], off
+	v_mov_b32_e32 v3, s9
+	v_add_co_u32_e32 v0, vcc, s8, v0
+	v_addc_co_u32_e32 v1, vcc, v3, v1, vcc
+	s_waitcnt vmcnt(0)
+	v_add_f32_e32 v2, v4, v2
+	global_store_dword v[0:1], v2, off
 	s_endpgm
 	.section	.rodata,#alloc
-	.p2align	6
-	.amdhsa_kernel _Z15vectoradd_floatPfPKfS1_ii
+	.p2align	6, 0x0
+	.amdhsa_kernel _Z15vectoradd_floatPKfS0_Pf
 		.amdhsa_group_segment_fixed_size 0
 		.amdhsa_private_segment_fixed_size 0
-		.amdhsa_kernarg_size 32
-		.amdhsa_user_sgpr_count 8
+		.amdhsa_kernarg_size 24
+		.amdhsa_user_sgpr_count 12
 		.amdhsa_user_sgpr_private_segment_buffer 1
-		.amdhsa_user_sgpr_dispatch_ptr 1
+		.amdhsa_user_sgpr_dispatch_ptr 0
 		.amdhsa_user_sgpr_queue_ptr 0
 		.amdhsa_user_sgpr_kernarg_segment_ptr 1
 		.amdhsa_user_sgpr_dispatch_id 0
@@ -34,14 +44,13 @@ _Z15vectoradd_floatPfPKfS1_ii:          ; @_Z15vectoradd_floatPfPKfS1_ii
 		.amdhsa_user_sgpr_private_segment_size 0
 		.amdhsa_system_sgpr_private_segment_wavefront_offset 0
 		.amdhsa_system_sgpr_workgroup_id_x 1
-		.amdhsa_system_sgpr_workgroup_id_y 0
+		.amdhsa_system_sgpr_workgroup_id_y 1
 		.amdhsa_system_sgpr_workgroup_id_z 0
 		.amdhsa_system_sgpr_workgroup_info 0
-		.amdhsa_system_vgpr_workitem_id 0
-		.amdhsa_next_free_vgpr 3
-		.amdhsa_next_free_sgpr 9
-		.amdhsa_accum_offset 4
-		.amdhsa_reserve_vcc 0
+		.amdhsa_system_vgpr_workitem_id 1
+		.amdhsa_next_free_vgpr 5
+		.amdhsa_next_free_sgpr 14
+		.amdhsa_accum_offset 8
 		.amdhsa_reserve_flat_scratch 0
 		.amdhsa_reserve_xnack_mask 1
 		.amdhsa_float_round_mode_32 0
@@ -62,15 +71,15 @@ _Z15vectoradd_floatPfPKfS1_ii:          ; @_Z15vectoradd_floatPfPKfS1_ii
 	.end_amdhsa_kernel
 	.text
 .Lfunc_end0:
-	.size	_Z15vectoradd_floatPfPKfS1_ii, .Lfunc_end0-_Z15vectoradd_floatPfPKfS1_ii
+	.size	_Z15vectoradd_floatPKfS0_Pf, .Lfunc_end0-_Z15vectoradd_floatPKfS0_Pf
                                         ; -- End function
 	.section	.AMDGPU.csdata
 ; Kernel info:
-; codeLenInByte = 72
-; NumSgprs: 9
-; NumVgprs: 3
+; codeLenInByte = 120
+; NumSgprs: 16
+; NumVgprs: 5
 ; NumAgprs: 0
-; TotalNumVgprs: 3
+; TotalNumVgprs: 5
 ; ScratchSize: 0
 ; MemoryBound: 0
 ; FloatMode: 240
@@ -78,64 +87,63 @@ _Z15vectoradd_floatPfPKfS1_ii:          ; @_Z15vectoradd_floatPfPKfS1_ii
 ; LDSByteSize: 0 bytes/workgroup (compile time only)
 ; SGPRBlocks: 1
 ; VGPRBlocks: 0
-; NumSGPRsForWavesPerEU: 9
-; NumVGPRsForWavesPerEU: 3
-; AccumOffset: 4
+; NumSGPRsForWavesPerEU: 16
+; NumVGPRsForWavesPerEU: 5
+; AccumOffset: 8
 ; Occupancy: 8
 ; WaveLimiterHint : 0
 ; COMPUTE_PGM_RSRC2:SCRATCH_EN: 0
-; COMPUTE_PGM_RSRC2:USER_SGPR: 8
+; COMPUTE_PGM_RSRC2:USER_SGPR: 12
 ; COMPUTE_PGM_RSRC2:TRAP_HANDLER: 0
 ; COMPUTE_PGM_RSRC2:TGID_X_EN: 1
-; COMPUTE_PGM_RSRC2:TGID_Y_EN: 0
+; COMPUTE_PGM_RSRC2:TGID_Y_EN: 1
 ; COMPUTE_PGM_RSRC2:TGID_Z_EN: 0
-; COMPUTE_PGM_RSRC2:TIDIG_COMP_CNT: 0
-; COMPUTE_PGM_RSRC3_GFX90A:ACCUM_OFFSET: 0
+; COMPUTE_PGM_RSRC2:TIDIG_COMP_CNT: 1
+; COMPUTE_PGM_RSRC3_GFX90A:ACCUM_OFFSET: 1
 ; COMPUTE_PGM_RSRC3_GFX90A:TG_SPLIT: 0
 	.text
 	.p2alignl 6, 3212836864
 	.fill 256, 4, 3212836864
+	.ident	"clang version 16.0.0 (git@github.com:whchung/llvm-project e56da57604341f40d4fd30459d34dc60ca001c27)"
 	.ident	"AMD clang version 14.0.0 (https://github.com/RadeonOpenCompute/llvm-project roc-5.2.0 22204 50d6d5d5b608d2abd6af44314abc6ad20036af3b)"
 	.section	".note.GNU-stack"
 	.addrsig
 	.amdgpu_metadata
 ---
 amdhsa.kernels:
-  - .args:
-      - .address_space:  global
+  - .agpr_count:     0
+    .args:
+      - .access:         read_only
+        .address_space:  global
+        .name:           a.coerce
         .offset:         0
         .size:           8
         .value_kind:     global_buffer
       - .access:         read_only
         .address_space:  global
+        .name:           b.coerce
         .offset:         8
         .size:           8
         .value_kind:     global_buffer
-      - .access:         read_only
-        .address_space:  global
+      - .address_space:  global
+        .name:           c.coerce
         .offset:         16
         .size:           8
         .value_kind:     global_buffer
-      - .offset:         24
-        .size:           4
-        .value_kind:     by_value
-      - .offset:         28
-        .size:           4
-        .value_kind:     by_value
     .group_segment_fixed_size: 0
     .kernarg_segment_align: 8
-    .kernarg_segment_size: 32
+    .kernarg_segment_size: 24
     .language:       OpenCL C
     .language_version:
       - 2
       - 0
     .max_flat_workgroup_size: 1024
-    .name:           _Z15vectoradd_floatPfPKfS1_ii
+    .name:           _Z15vectoradd_floatPKfS0_Pf
     .private_segment_fixed_size: 0
-    .sgpr_count:     9
+    .sgpr_count:     16
     .sgpr_spill_count: 0
-    .symbol:         _Z15vectoradd_floatPfPKfS1_ii.kd
-    .vgpr_count:     3
+    .symbol:         _Z15vectoradd_floatPKfS0_Pf.kd
+    .vgpr_count:     5
     .vgpr_spill_count: 0
     .wavefront_size: 64
 amdhsa.target:   amdgcn-amd-amdhsa--gfx90a

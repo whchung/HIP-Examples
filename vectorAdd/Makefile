@@ -34,5 +34,5 @@ clean:
 	rm -f $(EXECUTABLE)
 	rm -f $(OBJECTS)
 	rm -f $(HIP_PATH)/src/*.o
-	rm -f *.o *.cui *.bc *.hipfb *.out *.resolution.txt
+	rm -f *.o *.cui *.bc *.hipfb *.out *.resolution.txt *.s results.*
 
