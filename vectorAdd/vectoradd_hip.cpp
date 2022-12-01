@@ -34,45 +34,33 @@ THE SOFTWARE.
 #endif
 
 
-#define WIDTH     1024
-#define HEIGHT    1024
+#define WIDTH     64
+#define HEIGHT    1
 
 #define NUM       (WIDTH*HEIGHT)
 
-#define THREADS_PER_BLOCK_X  16
-#define THREADS_PER_BLOCK_Y  16
+#define THREADS_PER_BLOCK_X  64
+#define THREADS_PER_BLOCK_Y  1
 #define THREADS_PER_BLOCK_Z  1
 
 __global__ void 
-vectoradd_float(float* __restrict__ a, const float* __restrict__ b, const float* __restrict__ c, int width, int height) 
+vectorset_float(const float* __restrict__ a, const float* __restrict__ b, float* __restrict__ c)
 
   {
  
-      int x = hipBlockDim_x * hipBlockIdx_x + hipThreadIdx_x;
-      int y = hipBlockDim_y * hipBlockIdx_y + hipThreadIdx_y;
+      int x = hipThreadIdx_x;
+      int y = hipThreadIdx_y;
 
-      int i = y * width + x;
-      if ( i < (width * height)) {
-        a[i] = b[i] + c[i];
+      int i = y * WIDTH + x;
+      if (i < 32) {
+        c[i] = a[i] + b[i];
+      } else {
+        c[i] = (a[i] + b[i]) * 2;
       }
 
 
 
   }
-
-#if 0
-__kernel__ void vectoradd_float(float* a, const float* b, const float* c, int width, int height) {
-
-  
-  int x = blockDimX * blockIdx.x + threadIdx.x;
-  int y = blockDimY * blockIdy.y + threadIdx.y;
-
-  int i = y * width + x;
-  if ( i < (width * height)) {
-    a[i] = b[i] + c[i];
-  }
-}
-#endif
 
 using namespace std;
 
@@ -106,39 +94,55 @@ int main() {
   
   // initialize the input data
   for (i = 0; i < NUM; i++) {
-    hostB[i] = (float)i;
-    hostC[i] = (float)i*100.0f;
+    hostA[i] = (float)i;
+    hostB[i] = (float)i*100.0f;
   }
   
   HIP_ASSERT(hipMalloc((void**)&deviceA, NUM * sizeof(float)));
   HIP_ASSERT(hipMalloc((void**)&deviceB, NUM * sizeof(float)));
   HIP_ASSERT(hipMalloc((void**)&deviceC, NUM * sizeof(float)));
   
+  HIP_ASSERT(hipMemcpy(deviceA, hostA, NUM*sizeof(float), hipMemcpyHostToDevice));
   HIP_ASSERT(hipMemcpy(deviceB, hostB, NUM*sizeof(float), hipMemcpyHostToDevice));
-  HIP_ASSERT(hipMemcpy(deviceC, hostC, NUM*sizeof(float), hipMemcpyHostToDevice));
 
 
-  hipLaunchKernelGGL(vectoradd_float, 
+  hipLaunchKernelGGL(vectorset_float, 
                   dim3(WIDTH/THREADS_PER_BLOCK_X, HEIGHT/THREADS_PER_BLOCK_Y),
                   dim3(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y),
                   0, 0,
-                  deviceA ,deviceB ,deviceC ,WIDTH ,HEIGHT);
+                  //deviceA ,deviceB ,deviceC ,WIDTH ,HEIGHT);
+                  deviceA ,deviceB ,deviceC);
 
 
-  HIP_ASSERT(hipMemcpy(hostA, deviceA, NUM*sizeof(float), hipMemcpyDeviceToHost));
+  HIP_ASSERT(hipMemcpy(hostC, deviceC, NUM*sizeof(float), hipMemcpyDeviceToHost));
 
   // verify the results
   errors = 0;
   for (i = 0; i < NUM; i++) {
-    if (hostA[i] != (hostB[i] + hostC[i])) {
-      errors++;
+    if (i < 32) {
+      std::cout << hostA[i] << " " << hostB[i] << " " << hostC[i] << "\n";
+    } else {
+      std::cout << hostA[i] << " " << hostB[i] << " " << reinterpret_cast<unsigned int*>(hostC)[i] << "\n";
     }
+#if 0
+    if (i < 32) {
+      if (hostC[i] != (hostA[i] + hostB[i])) {
+        errors++;
+      }
+    } else {
+      if (hostC[i] != ((hostA[i] + hostB[i]) * 2)) {
+        errors++;
+      }
+    }
+#endif
   }
+#if 0
   if (errors!=0) {
     printf("FAILED: %d errors\n",errors);
   } else {
       printf ("PASSED!\n");
   }
+#endif
 
   HIP_ASSERT(hipFree(deviceA));
   HIP_ASSERT(hipFree(deviceB));
