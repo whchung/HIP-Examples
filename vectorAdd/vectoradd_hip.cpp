@@ -26,7 +26,7 @@ THE SOFTWARE.
 #include<iostream>
 #include "hip/hip_runtime.h"
 
-
+#define NDEBUG
 #ifdef NDEBUG
 #define HIP_ASSERT(x) x
 #else
@@ -103,6 +103,10 @@ int main() {
   int i;
   int errors;
 
+  hipEvent_t startEvent, stopEvent;
+  HIP_ASSERT(hipEventCreate(&startEvent));
+  HIP_ASSERT(hipEventCreate(&stopEvent));
+
   hostA = (float*)malloc(NUM * sizeof(float));
   hostB = (float*)malloc(NUM * sizeof(float));
   hostC = (float*)malloc(NUM * sizeof(float));
@@ -124,6 +128,7 @@ int main() {
   HIP_ASSERT(hipMemcpy(deviceA, hostA, NUM*sizeof(float), hipMemcpyHostToDevice));
   HIP_ASSERT(hipMemcpy(deviceB, hostB, NUM*sizeof(float), hipMemcpyHostToDevice));
 
+  HIP_ASSERT(hipEventRecord(startEvent, nullptr));
 
   hipLaunchKernelGGL(vectoradd_float, 
                   dim3(WIDTH/THREADS_PER_BLOCK_X, HEIGHT/THREADS_PER_BLOCK_Y),
@@ -140,6 +145,9 @@ int main() {
                   deviceA ,deviceB ,deviceC ,deviceD);
 #endif
 
+  HIP_ASSERT(hipEventRecord(stopEvent, nullptr));
+  HIP_ASSERT(hipEventSynchronize(stopEvent));
+
   HIP_ASSERT(hipMemcpy(hostC, deviceC, NUM*sizeof(float), hipMemcpyDeviceToHost));
   HIP_ASSERT(hipMemcpy(hostD, deviceD, NUM*sizeof(float), hipMemcpyDeviceToHost));
 
@@ -154,12 +162,18 @@ int main() {
   for (i = 0; i < 10; ++i) {
       printf("A: %f, B: %f, C: %f, D: %f\n", hostA[i], hostB[i], hostC[i], hostD[i]);
   }
+  float ms = 0.0f;
+  HIP_ASSERT(hipEventElapsedTime(&ms, startEvent, stopEvent));
+  printf("Time: %f ms\n", ms);
 
   if (errors!=0) {
     printf("FAILED: %d errors\n",errors);
   } else {
       printf ("PASSED!\n");
   }
+
+  HIP_ASSERT(hipEventDestroy(startEvent));
+  HIP_ASSERT(hipEventDestroy(stopEvent));
 
   HIP_ASSERT(hipFree(deviceA));
   HIP_ASSERT(hipFree(deviceB));
