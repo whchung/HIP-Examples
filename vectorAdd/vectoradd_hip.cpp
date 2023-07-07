@@ -44,15 +44,15 @@ THE SOFTWARE.
 #define THREADS_PER_BLOCK_Z  1
 
 __global__ void 
-vectoradd_float(const float* __restrict__ a, const float* __restrict__ b, float* __restrict__ c, float* __restrict__ d, int width, int height) 
+vectoradd_float(const float* __restrict__ a, const float* __restrict__ b, float* __restrict__ c, float* __restrict__ d)
 
   {
  
-      int x = hipBlockDim_x * hipBlockIdx_x + hipThreadIdx_x;
-      int y = hipBlockDim_y * hipBlockIdx_y + hipThreadIdx_y;
+      int x = THREADS_PER_BLOCK_X * hipBlockIdx_x + hipThreadIdx_x;
+      int y = THREADS_PER_BLOCK_Y * hipBlockIdx_y + hipThreadIdx_y;
 
-      int i = y * width + x;
-      if ( i < (width * height)) {
+      int i = y * WIDTH + x;
+      if ( i < (WIDTH * HEIGHT)) {
         c[i] = a[i] + b[i];
       }
 
@@ -61,15 +61,15 @@ vectoradd_float(const float* __restrict__ a, const float* __restrict__ b, float*
   }
 
 __global__ void
-vectoradd_float2(const float* __restrict__ a, const float* __restrict__ b, const float* __restrict__ c, float* __restrict__ d, int width, int height)
+vectoradd_float2(const float* __restrict__ a, const float* __restrict__ b, const float* __restrict__ c, float* __restrict__ d)
 
   {
 
-      int x = hipBlockDim_x * hipBlockIdx_x + hipThreadIdx_x;
-      int y = hipBlockDim_y * hipBlockIdx_y + hipThreadIdx_y;
+      int x = THREADS_PER_BLOCK_X * hipBlockIdx_x + hipThreadIdx_x;
+      int y = THREADS_PER_BLOCK_Y * hipBlockIdx_y + hipThreadIdx_y;
 
-      int i = y * width + x;
-      if ( i < (width * height)) {
+      int i = y * WIDTH + x;
+      if ( i < (WIDTH * HEIGHT)) {
         d[i] = b[i] + c[i];
       }
 
@@ -129,13 +129,16 @@ int main() {
                   dim3(WIDTH/THREADS_PER_BLOCK_X, HEIGHT/THREADS_PER_BLOCK_Y),
                   dim3(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y),
                   0, 0,
-                  deviceA ,deviceB ,deviceC ,deviceD, WIDTH ,HEIGHT);
+                  deviceA ,deviceB ,deviceC ,deviceD);
 
+#if 0
+  // vectoradd_float2 will be fused with vectoradd_float
   hipLaunchKernelGGL(vectoradd_float2, 
                   dim3(WIDTH/THREADS_PER_BLOCK_X, HEIGHT/THREADS_PER_BLOCK_Y),
                   dim3(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y),
                   0, 0,
-                  deviceA ,deviceB ,deviceC ,deviceD, WIDTH ,HEIGHT);
+                  deviceA ,deviceB ,deviceC ,deviceD);
+#endif
 
   HIP_ASSERT(hipMemcpy(hostD, deviceD, NUM*sizeof(float), hipMemcpyDeviceToHost));
 
