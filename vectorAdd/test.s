@@ -9,6 +9,8 @@ _Z15vectoradd_floatPKfS0_PfS1_:         ; @_Z15vectoradd_floatPKfS0_PfS1_
         ; save context
         s_mov_b32_e32 s8, s6
         s_mov_b32_e32 s9, s7
+        v_mov_b32_e32 v8, v0
+        v_mov_b32_e32 v9, v1
 
 	s_lshl_b32 s1, s7, 4
 	s_lshl_b32 s0, s6, 4
@@ -46,6 +48,8 @@ BB0_2:
         ; restore context
         s_mov_b32_e32 s6, s8
         s_mov_b32_e32 s7, s9
+        v_mov_b32_e32 v0, v8
+        v_mov_b32_e32 v1, v9
 
 ; %bb.0:
         s_lshl_b32 s1, s7, 4

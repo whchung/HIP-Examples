@@ -140,6 +140,7 @@ int main() {
                   deviceA ,deviceB ,deviceC ,deviceD);
 #endif
 
+  HIP_ASSERT(hipMemcpy(hostC, deviceC, NUM*sizeof(float), hipMemcpyDeviceToHost));
   HIP_ASSERT(hipMemcpy(hostD, deviceD, NUM*sizeof(float), hipMemcpyDeviceToHost));
 
   // verify the results
@@ -149,6 +150,11 @@ int main() {
       errors++;
     }
   }
+
+  for (i = 0; i < 10; ++i) {
+      printf("A: %f, B: %f, C: %f, D: %f\n", hostA[i], hostB[i], hostC[i], hostD[i]);
+  }
+
   if (errors!=0) {
     printf("FAILED: %d errors\n",errors);
   } else {
