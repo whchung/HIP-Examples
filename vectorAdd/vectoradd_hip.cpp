@@ -26,6 +26,10 @@ THE SOFTWARE.
 #include<iostream>
 #include "hip/hip_runtime.h"
 
+#ifndef FUSED
+#define FUSED (0)
+#endif
+
 #define NDEBUG
 #ifdef NDEBUG
 #define HIP_ASSERT(x) x
@@ -38,6 +42,8 @@ THE SOFTWARE.
 #define HEIGHT    1024
 
 #define NUM       (WIDTH*HEIGHT)
+#define WARMUP    (4)
+#define ROUNDS    (16)
 
 #define THREADS_PER_BLOCK_X  16
 #define THREADS_PER_BLOCK_Y  16
@@ -128,22 +134,41 @@ int main() {
   HIP_ASSERT(hipMemcpy(deviceA, hostA, NUM*sizeof(float), hipMemcpyHostToDevice));
   HIP_ASSERT(hipMemcpy(deviceB, hostB, NUM*sizeof(float), hipMemcpyHostToDevice));
 
+  // warm-up
+  for (i = 0; i < WARMUP; ++i) {
+    hipLaunchKernelGGL(vectoradd_float,
+                    dim3(WIDTH/THREADS_PER_BLOCK_X, HEIGHT/THREADS_PER_BLOCK_Y),
+                    dim3(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y),
+                    0, 0,
+                    deviceA ,deviceB ,deviceC ,deviceD);
+    hipLaunchKernelGGL(vectoradd_float2,
+                    dim3(WIDTH/THREADS_PER_BLOCK_X, HEIGHT/THREADS_PER_BLOCK_Y),
+                    dim3(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y),
+                    0, 0,
+                    deviceA ,deviceB ,deviceC ,deviceD);
+  }
+  HIP_ASSERT(hipMemcpy(deviceC, hostC, NUM*sizeof(float), hipMemcpyHostToDevice));
+  HIP_ASSERT(hipMemcpy(deviceD, hostD, NUM*sizeof(float), hipMemcpyHostToDevice));
+
+
   HIP_ASSERT(hipEventRecord(startEvent, nullptr));
 
-  hipLaunchKernelGGL(vectoradd_float, 
-                  dim3(WIDTH/THREADS_PER_BLOCK_X, HEIGHT/THREADS_PER_BLOCK_Y),
-                  dim3(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y),
-                  0, 0,
-                  deviceA ,deviceB ,deviceC ,deviceD);
+  for (i = 0; i < ROUNDS; ++i) {
+    hipLaunchKernelGGL(vectoradd_float, 
+                    dim3(WIDTH/THREADS_PER_BLOCK_X, HEIGHT/THREADS_PER_BLOCK_Y),
+                    dim3(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y),
+                    0, 0,
+                    deviceA ,deviceB ,deviceC ,deviceD);
 
-#if 0
-  // vectoradd_float2 will be fused with vectoradd_float
-  hipLaunchKernelGGL(vectoradd_float2, 
-                  dim3(WIDTH/THREADS_PER_BLOCK_X, HEIGHT/THREADS_PER_BLOCK_Y),
-                  dim3(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y),
-                  0, 0,
-                  deviceA ,deviceB ,deviceC ,deviceD);
+#if !FUSED 
+    // vectoradd_float2 will be fused with vectoradd_float
+    hipLaunchKernelGGL(vectoradd_float2, 
+                    dim3(WIDTH/THREADS_PER_BLOCK_X, HEIGHT/THREADS_PER_BLOCK_Y),
+                    dim3(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y),
+                    0, 0,
+                    deviceA ,deviceB ,deviceC ,deviceD);
 #endif
+  }
 
   HIP_ASSERT(hipEventRecord(stopEvent, nullptr));
   HIP_ASSERT(hipEventSynchronize(stopEvent));
@@ -160,11 +185,11 @@ int main() {
   }
 
   for (i = 0; i < 10; ++i) {
-      printf("A: %f, B: %f, C: %f, D: %f\n", hostA[i], hostB[i], hostC[i], hostD[i]);
+      printf("A: %6.3f, B: %6.3f, C: %6.3f, D: %6.3f\n", hostA[i], hostB[i], hostC[i], hostD[i]);
   }
   float ms = 0.0f;
   HIP_ASSERT(hipEventElapsedTime(&ms, startEvent, stopEvent));
-  printf("Time: %f ms\n", ms);
+  printf("Time: %f ms\n", ms / ROUNDS);
 
   if (errors!=0) {
     printf("FAILED: %d errors\n",errors);
