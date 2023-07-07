@@ -44,7 +44,7 @@ THE SOFTWARE.
 #define THREADS_PER_BLOCK_Z  1
 
 __global__ void 
-vectoradd_float(float* __restrict__ a, const float* __restrict__ b, const float* __restrict__ c, int width, int height) 
+vectoradd_float(const float* __restrict__ a, const float* __restrict__ b, float* __restrict__ c, float* __restrict__ d, int width, int height) 
 
   {
  
@@ -53,26 +53,27 @@ vectoradd_float(float* __restrict__ a, const float* __restrict__ b, const float*
 
       int i = y * width + x;
       if ( i < (width * height)) {
-        a[i] = b[i] + c[i];
+        c[i] = a[i] + b[i];
       }
 
 
 
   }
 
-#if 0
-__kernel__ void vectoradd_float(float* a, const float* b, const float* c, int width, int height) {
+__global__ void
+vectoradd_float2(const float* __restrict__ a, const float* __restrict__ b, const float* __restrict__ c, float* __restrict__ d, int width, int height)
 
-  
-  int x = blockDimX * blockIdx.x + threadIdx.x;
-  int y = blockDimY * blockIdy.y + threadIdx.y;
+  {
 
-  int i = y * width + x;
-  if ( i < (width * height)) {
-    a[i] = b[i] + c[i];
+      int x = hipBlockDim_x * hipBlockIdx_x + hipThreadIdx_x;
+      int y = hipBlockDim_y * hipBlockIdx_y + hipThreadIdx_y;
+
+      int i = y * width + x;
+      if ( i < (width * height)) {
+        d[i] = b[i] + c[i];
+      }
+
   }
-}
-#endif
 
 using namespace std;
 
@@ -81,10 +82,12 @@ int main() {
   float* hostA;
   float* hostB;
   float* hostC;
+  float* hostD;
 
   float* deviceA;
   float* deviceB;
   float* deviceC;
+  float* deviceD;
 
   hipDeviceProp_t devProp;
   hipGetDeviceProperties(&devProp, 0);
@@ -103,34 +106,43 @@ int main() {
   hostA = (float*)malloc(NUM * sizeof(float));
   hostB = (float*)malloc(NUM * sizeof(float));
   hostC = (float*)malloc(NUM * sizeof(float));
+  hostD = (float*)malloc(NUM * sizeof(float));
   
   // initialize the input data
   for (i = 0; i < NUM; i++) {
-    hostB[i] = (float)i;
-    hostC[i] = (float)i*100.0f;
+    hostA[i] = (float)i;
+    hostB[i] = (float)i*100.0f;
+    hostC[i] = (float)0.0f;
+    hostD[i] = (float)0.0f;
   }
   
   HIP_ASSERT(hipMalloc((void**)&deviceA, NUM * sizeof(float)));
   HIP_ASSERT(hipMalloc((void**)&deviceB, NUM * sizeof(float)));
   HIP_ASSERT(hipMalloc((void**)&deviceC, NUM * sizeof(float)));
+  HIP_ASSERT(hipMalloc((void**)&deviceD, NUM * sizeof(float)));
   
+  HIP_ASSERT(hipMemcpy(deviceA, hostA, NUM*sizeof(float), hipMemcpyHostToDevice));
   HIP_ASSERT(hipMemcpy(deviceB, hostB, NUM*sizeof(float), hipMemcpyHostToDevice));
-  HIP_ASSERT(hipMemcpy(deviceC, hostC, NUM*sizeof(float), hipMemcpyHostToDevice));
 
 
   hipLaunchKernelGGL(vectoradd_float, 
                   dim3(WIDTH/THREADS_PER_BLOCK_X, HEIGHT/THREADS_PER_BLOCK_Y),
                   dim3(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y),
                   0, 0,
-                  deviceA ,deviceB ,deviceC ,WIDTH ,HEIGHT);
+                  deviceA ,deviceB ,deviceC ,deviceD, WIDTH ,HEIGHT);
 
+  hipLaunchKernelGGL(vectoradd_float2, 
+                  dim3(WIDTH/THREADS_PER_BLOCK_X, HEIGHT/THREADS_PER_BLOCK_Y),
+                  dim3(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y),
+                  0, 0,
+                  deviceA ,deviceB ,deviceC ,deviceD, WIDTH ,HEIGHT);
 
-  HIP_ASSERT(hipMemcpy(hostA, deviceA, NUM*sizeof(float), hipMemcpyDeviceToHost));
+  HIP_ASSERT(hipMemcpy(hostD, deviceD, NUM*sizeof(float), hipMemcpyDeviceToHost));
 
   // verify the results
   errors = 0;
   for (i = 0; i < NUM; i++) {
-    if (hostA[i] != (hostB[i] + hostC[i])) {
+    if (hostD[i] != (hostA[i] + hostB[i] + hostB[i])) {
       errors++;
     }
   }
@@ -143,10 +155,12 @@ int main() {
   HIP_ASSERT(hipFree(deviceA));
   HIP_ASSERT(hipFree(deviceB));
   HIP_ASSERT(hipFree(deviceC));
+  HIP_ASSERT(hipFree(deviceD));
 
   free(hostA);
   free(hostB);
   free(hostC);
+  free(hostD);
 
   //hipResetDefaultAccelerator();
 
