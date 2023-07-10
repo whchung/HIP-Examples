@@ -8,9 +8,6 @@ OUTPUT_FILE = "output.s"
 HOST_KERNEL = "_Z15vectoradd_floatPKfS0_PfS1_"
 GUEST_KERNEL = "_Z16vectoradd_float2PKfS0_S0_Pf"
 
-TEMPLATE_FILE_BEGIN = 'template_begin.s'
-TEMPLATE_FILE_END = 'template_end.s'
-
 # Constants
 MAYBE_EMPTY_SPACES = r'[ \t]*'
 NON_EMPTY_SPACES = r'[ \t]+'
@@ -58,26 +55,40 @@ def retrieve_kernel_names(input_stream, output_list):
       output_list.append(m.group(2))
 
 # Parse input stream, retrieve kernel source code
-def retrieve_kernel_source_code(kernel_name, input_stream, output_dict):
+def retrieve_kernel_source_code(kernel_name, input_stream, output_dict, log_prologue_epilogue = False, prologue_list = None, epilogue_list = None):
   inside_kernel_code = False
   for input_line in input_stream:
     if inside_kernel_code is False:
       m = re.search(kernel_name + KERNEL_CODE_BEGIN_REGEX + kernel_name, input_line)
       if m is not None:
-        # Found beginning of code
         output_dict[kernel_name] = []
-        # XXX Ignore the very first line
-        #output_dict[kernel_name].append(input_line)
+
+        # Found beginning of code
+        if log_prologue_epilogue == True and prologue_list is not None:
+          prologue_list.append(input_line.rstrip())
+
         inside_kernel_code = True
         continue
+      else:
+        if log_prologue_epilogue == True and prologue_list is not None:
+          prologue_list.append(input_line.rstrip())
+
     else:
       m = re.search(KERNEL_CODE_END_REGEX, input_line)
       if m is not None:
         # Found end of code
+        if log_prologue_epilogue == True and epilogue_list is not None:
+          epilogue_list.append(input_line.rstrip())
+
         inside_kernel_code = False
         break
   
       output_dict[kernel_name].append(input_line.rstrip())
+
+  # Log the remaining lines if needed
+  if log_prologue_epilogue == True and epilogue_list is not None:
+    for input_line in input_stream:
+      epilogue_list.append(input_line.rstrip())
 
 # Parse input stream, retrieve kernel metadata
 def retrieve_kernel_metadata(kernel_name, input_stream, output_dict):
@@ -107,6 +118,9 @@ def retrieve_kernel_metadata(kernel_name, input_stream, output_dict):
 # Lists
 kernel_name_list = []
 
+kernel_prologue_list = []
+kernel_epilogue_list = []
+
 # Dicts
 kernel_code_dict = {}
 kernel_metadata_dict = {}
@@ -125,7 +139,7 @@ retrieve_kernel_names(input_file, kernel_name_list)
 
 # Get kernel code and metadata
 input_file.seek(0)
-retrieve_kernel_source_code(HOST_KERNEL, input_file, kernel_code_dict)
+retrieve_kernel_source_code(HOST_KERNEL, input_file, kernel_code_dict, True, kernel_prologue_list, kernel_epilogue_list)
 input_file.seek(0)
 retrieve_kernel_metadata(HOST_KERNEL, input_file, kernel_metadata_dict)
 
@@ -189,6 +203,10 @@ for d in range(len(DIMENSIONS)):
     next_vgpr += 1
     user_sgpr_adc_saved += 1
 
+# Manipulate host kernel, modify metadata
+kernel_metadata_dict[HOST_KERNEL][NEXT_FREE_VGPR] = next_vgpr
+kernel_metadata_dict[HOST_KERNEL][NEXT_FREE_SGPR] = next_sgpr
+
 # Manipulate host kernel, disable s_endpgm
 for line_number in range(len(kernel_code_dict[HOST_KERNEL])):
   line = kernel_code_dict[HOST_KERNEL][line_number]
@@ -206,14 +224,29 @@ for line_number in range(len(kernel_code_dict[GUEST_KERNEL])):
 # Start fusion
 kernel_code_dict[HOST_KERNEL] = context_save_logic + kernel_code_dict[HOST_KERNEL] + context_restore_logic + kernel_code_dict[GUEST_KERNEL]
 
-template_begin_file = open(TEMPLATE_FILE_BEGIN, 'r')
-for line in template_begin_file:
+for line in kernel_prologue_list:
   print(line.rstrip())
 
 for line in kernel_code_dict[HOST_KERNEL]:
   print(line)
 
-template_end_file = open(TEMPLATE_FILE_END, 'r')
-for line in template_end_file:
-  print(line.rstrip())
+done_next_free_vgpr = False
+done_next_free_sgpr = False
+for line in kernel_epilogue_list:
+  # XXX really bad logic
+  if done_next_free_vgpr == False or done_next_free_sgpr == False:
+    m = re.search(KERNEL_METADATA_ENTRY_REGEX, line)
+    if m is not None:
+      if m.group(1) == NEXT_FREE_VGPR:
+        done_next_free_vgpr = True
+        print('\t\t.' + m.group(1) + ' ' + str(next_vgpr))
+      elif m.group(1) == NEXT_FREE_SGPR:
+        done_next_free_sgpr = True
+        print('\t\t.' + m.group(1) + ' ' + str(next_sgpr))
+      else:
+        print(line.rstrip())
+    else:
+      print(line.rstrip())
+  else:
+    print(line.rstrip())
 
