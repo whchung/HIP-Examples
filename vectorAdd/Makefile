@@ -7,7 +7,7 @@ HIPCC=$(HIP_PATH)/bin/hipcc
 
 TARGET=hcc
 
-SOURCES = vectoradd_hip.cpp 
+SOURCES = vectoradd_hip.cpp
 OBJECTS = $(SOURCES:.cpp=.o)
 
 EXECUTABLE=./vectoradd_hip.exe
@@ -33,6 +33,7 @@ test: $(EXECUTABLE)
 clean:
 	rm -f $(EXECUTABLE)
 	rm -f $(OBJECTS)
-	rm -f $(HIP_PATH)/src/*.o
-
-
+	rm -f *.o
+	rm -f vectoradd_hip-*
+	rm -f $(SOURCES)-*
+	rm -f test.s new.exe
