@@ -25,6 +25,10 @@ CXX=$(HIPCC)
 $(EXECUTABLE): $(OBJECTS) 
 	$(HIPCC) $(OBJECTS) -o $@
 
+fuse: $(EXECUTABLE) test
+	./fuser.py > test.s
+	./assemble.sh
+	./fused.exe
 
 test: $(EXECUTABLE)
 	$(EXECUTABLE)
@@ -36,4 +40,4 @@ clean:
 	rm -f *.o
 	rm -f vectoradd_hip-*
 	rm -f $(SOURCES)-*
-	rm -f test.s new.exe
+	rm -f test.s fused.exe
