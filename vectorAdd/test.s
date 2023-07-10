@@ -5,13 +5,12 @@
 	.p2align	8
 	.type	_Z15vectoradd_floatPKfS0_PfS1_,@function
 _Z15vectoradd_floatPKfS0_PfS1_:         ; @_Z15vectoradd_floatPKfS0_PfS1_
-; %bb.0:
         ; save context
         s_mov_b32_e32 s8, s6
         s_mov_b32_e32 s9, s7
         v_mov_b32_e32 v8, v0
         v_mov_b32_e32 v9, v1
-
+; %bb.0:
 	s_lshl_b32 s1, s7, 4
 	s_lshl_b32 s0, s6, 4
 	v_add_lshl_u32 v1, s1, v1, 10
@@ -42,15 +41,12 @@ _Z15vectoradd_floatPKfS0_PfS1_:         ; @_Z15vectoradd_floatPKfS0_PfS1_
 	v_add_f32_e32 v0, v6, v7
 	global_store_dword v[2:3], v0, off
 BB0_2:
-        ; disable ending the program
 	;s_endpgm
-
         ; restore context
         s_mov_b32_e32 s6, s8
         s_mov_b32_e32 s7, s9
         v_mov_b32_e32 v0, v8
         v_mov_b32_e32 v1, v9
-
 ; %bb.0:
         s_lshl_b32 s1, s7, 4
         s_lshl_b32 s0, s6, 4
