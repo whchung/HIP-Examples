@@ -5,14 +5,15 @@ import re
 # Configuration
 INPUT_FILE = "vectoradd_hip-hip-amdgcn-amd-amdhsa-gfx900.s"
 OUTPUT_FILE = "output.s"
-HOST_KERNEL = "_Z15vectoradd_floatPKfS0_PfS1_"
-GUEST_KERNEL = "_Z16vectoradd_float2PKfS0_S0_Pf"
+HOST_KERNEL = "_Z15vectoradd_floatPKfS0_PfS0_S0_S1_"
+GUEST_KERNEL = "_Z16vectoradd_float2PKfS0_Pf"
 
 # Constants
 MAYBE_EMPTY_SPACES = r'[ \t]*'
 NON_EMPTY_SPACES = r'[ \t]+'
 KERNEL_METADATA_DIRECTIVE = r'.amdhsa_kernel'
 KERNEL_METADATA_END_DIRECTIVE = r'.end_amdhsa_kernel'
+
 
 USER_SGPR_DIRECTIVES = [ r'amdhsa_user_sgpr_private_segment_buffer', \
                          r'amdhsa_user_sgpr_dispatch_ptr', \
@@ -26,9 +27,12 @@ USER_SGPR_CONSUMPTION = { r'amdhsa_user_sgpr_private_segment_buffer' : 4, \
                           r'amdhsa_user_sgpr_kernarg_segment_ptr' : 2, \
                           r'amdhsa_user_sgpr_dispatch_id' : 2, \
                           r'amdhsa_user_sgpr_flat_scratch_init': 2 }
+KERNARG_SEGMENT_PTR_INDEX = 3
 
 NEXT_FREE_SGPR = r'amdhsa_next_free_sgpr'
 NEXT_FREE_VGPR = r'amdhsa_next_free_vgpr'
+
+KERNARG_SIZE = r'amdhsa_kernarg_size'
 
 SYSTEM_SGPR_WORKGROUP_ID = r'amdhsa_system_sgpr_workgroup_id_'
 
@@ -45,7 +49,7 @@ KERNEL_CODE_END_REGEX = r'^[ \t]+\.section[ \t]+'
 
 KERNEL_METADATA_BEGIN_REGEX = MAYBE_EMPTY_SPACES + KERNEL_METADATA_DIRECTIVE + NON_EMPTY_SPACES
 KERNEL_METADATA_END_REGEX = MAYBE_EMPTY_SPACES + KERNEL_METADATA_END_DIRECTIVE
-KERNEL_METADATA_ENTRY_REGEX = MAYBE_EMPTY_SPACES + r'\.(\w+)' + NON_EMPTY_SPACES + r'(\d)' 
+KERNEL_METADATA_ENTRY_REGEX = MAYBE_EMPTY_SPACES + r'\.(\w+)' + NON_EMPTY_SPACES + r'(\d+)' 
 
 # Parse input file, retrieve kernel names
 def retrieve_kernel_names(input_stream, output_list):
@@ -150,17 +154,23 @@ retrieve_kernel_metadata(GUEST_KERNEL, input_file, kernel_metadata_dict)
 
 
 # Understand context to be saved:
+# TBD consider the case where guest / host kernarg segment ptr sgpr number mismatch
 metadata_dict = kernel_metadata_dict
 kernel_name = GUEST_KERNEL
 
 # user sgprs set by CP
 user_sgpr_cp_count = 0
+kernarg_segment_ptr_sgpr = []
 # Count user sgprs be used
 for user_sgpr in USER_SGPR_DIRECTIVES:
   if metadata_dict[kernel_name][user_sgpr] == 1:
+    # record user sgprs used by guest kernel for kernarg segment pointer
+    if user_sgpr == USER_SGPR_DIRECTIVES[KERNARG_SEGMENT_PTR_INDEX]:
+      kernarg_segment_ptr_sgpr = [ user_sgpr_cp_count, user_sgpr_cp_count + 1 ]
     user_sgpr_cp_count += USER_SGPR_CONSUMPTION[user_sgpr]
 
 #print("User sgpr set by CP: " + str(user_sgpr_cp_count))
+#print("Kernarg segment ptr: " + kernarg_segment_ptr_sgpr)
 
 # user sgprs set by ADC
 # workgroup ID + workitem ID
@@ -173,11 +183,16 @@ for dim in DIMENSIONS:
 
 # find next free SGPR / VGPR
 # TBD: need to align between GUEST and HOST
-next_free_sgpr = kernel_metadata_dict[GUEST_KERNEL][NEXT_FREE_SGPR]
-next_free_vgpr = kernel_metadata_dict[GUEST_KERNEL][NEXT_FREE_VGPR]
+next_free_sgpr = kernel_metadata_dict[HOST_KERNEL][NEXT_FREE_SGPR]
+next_free_vgpr = kernel_metadata_dict[HOST_KERNEL][NEXT_FREE_VGPR]
 
 #print("Next free SGPR: " + str(next_free_sgpr))
 #print("Next free VGPR: " + str(next_free_vgpr))
+
+host_kernarg_size = kernel_metadata_dict[HOST_KERNEL][KERNARG_SIZE]
+guest_kernarg_size = kernel_metadata_dict[GUEST_KERNEL][KERNARG_SIZE]
+# TBD: kernel signature merge takes place first before this logic could work
+kernarg_offset = host_kernarg_size - guest_kernarg_size
 
 # Produce context save/restore logic
 # TBD: consider SGPRs used by CP, align between GUEST and HOST
@@ -187,8 +202,10 @@ context_save_logic.append("\t; save context")
 context_restore_logic = []
 context_restore_logic.append("\t; restore context")
 
+# Produce logic to preserve SGPR / VGPR
 next_sgpr = next_free_sgpr
 next_vgpr = next_free_vgpr
+
 user_sgpr_adc_saved = 0
 for d in range(len(DIMENSIONS)):
   dim = DIMENSIONS[d]
@@ -202,6 +219,12 @@ for d in range(len(DIMENSIONS)):
     next_sgpr += 1
     next_vgpr += 1
     user_sgpr_adc_saved += 1
+
+# TBD Produce logic to preserve kernarg segment pointer
+
+# Produce logic to update kernarg segment pointer
+kernarg_segment_ptr_sgpr_be_updated = kernarg_segment_ptr_sgpr[0]
+context_restore_logic.append('\ts_addc_u32_e32' + ' ' + 's' + str(kernarg_segment_ptr_sgpr_be_updated) + ', ' + 's' + str(kernarg_segment_ptr_sgpr_be_updated) + ', ' + str(hex(kernarg_offset)))
 
 # Manipulate host kernel, modify metadata
 kernel_metadata_dict[HOST_KERNEL][NEXT_FREE_VGPR] = next_vgpr

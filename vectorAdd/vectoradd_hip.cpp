@@ -50,7 +50,11 @@ THE SOFTWARE.
 #define THREADS_PER_BLOCK_Z  1
 
 __global__ void 
-vectoradd_float(const float* __restrict__ a, const float* __restrict__ b, float* __restrict__ c, float* __restrict__ d)
+vectoradd_float(const float* __restrict__ a, const float* __restrict__ b, float* __restrict__ c
+#if 1 || FUSED
+                , const float* __restrict__ fused_b, const float* __restrict__ fused_c, float* __restrict__ fused_d
+#endif
+                )
 
   {
  
@@ -67,7 +71,7 @@ vectoradd_float(const float* __restrict__ a, const float* __restrict__ b, float*
   }
 
 __global__ void
-vectoradd_float2(const float* __restrict__ a, const float* __restrict__ b, const float* __restrict__ c, float* __restrict__ d)
+vectoradd_float2(const float* __restrict__ b, const float* __restrict__ c, float* __restrict__ d)
 
   {
 
@@ -140,12 +144,19 @@ int main() {
                     dim3(WIDTH/THREADS_PER_BLOCK_X, HEIGHT/THREADS_PER_BLOCK_Y),
                     dim3(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y),
                     0, 0,
-                    deviceA ,deviceB ,deviceC ,deviceD);
+                    deviceA ,deviceB ,deviceC
+#if 1 || FUSED
+                    , deviceB, deviceC, deviceD
+#endif
+                    );
+
+#if !FUSED
     hipLaunchKernelGGL(vectoradd_float2,
                     dim3(WIDTH/THREADS_PER_BLOCK_X, HEIGHT/THREADS_PER_BLOCK_Y),
                     dim3(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y),
                     0, 0,
-                    deviceA ,deviceB ,deviceC ,deviceD);
+                    deviceB ,deviceC ,deviceD);
+#endif
   }
   HIP_ASSERT(hipMemcpy(deviceC, hostC, NUM*sizeof(float), hipMemcpyHostToDevice));
   HIP_ASSERT(hipMemcpy(deviceD, hostD, NUM*sizeof(float), hipMemcpyHostToDevice));
@@ -158,7 +169,11 @@ int main() {
                     dim3(WIDTH/THREADS_PER_BLOCK_X, HEIGHT/THREADS_PER_BLOCK_Y),
                     dim3(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y),
                     0, 0,
-                    deviceA ,deviceB ,deviceC ,deviceD);
+                    deviceA ,deviceB ,deviceC
+#if 1 || FUSED
+                    , deviceB, deviceC, deviceD
+#endif
+                    );
 
 #if !FUSED 
     // vectoradd_float2 will be fused with vectoradd_float
@@ -166,7 +181,7 @@ int main() {
                     dim3(WIDTH/THREADS_PER_BLOCK_X, HEIGHT/THREADS_PER_BLOCK_Y),
                     dim3(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y),
                     0, 0,
-                    deviceA ,deviceB ,deviceC ,deviceD);
+                    deviceB ,deviceC ,deviceD);
 #endif
   }
 
