@@ -26,7 +26,7 @@ $(EXECUTABLE): $(OBJECTS)
 	$(HIPCC) $(OBJECTS) -o $@
 
 fuse: $(EXECUTABLE) test
-	./fuser.py > test.s
+	./fuser.py > fused.s
 	./assemble.sh
 	./fused.exe
 
@@ -40,4 +40,4 @@ clean:
 	rm -f *.o
 	rm -f vectoradd_hip-*
 	rm -f $(SOURCES)-*
-	rm -f test.s fused.exe
+	rm -f fused.s fused.exe
