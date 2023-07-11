@@ -52,7 +52,7 @@ THE SOFTWARE.
 __global__ void 
 vectoradd_float(const float* __restrict__ a, const float* __restrict__ b, float* __restrict__ c
 #if 1 || FUSED
-                , const float* __restrict__ fused_b, const float* __restrict__ fused_c, float* __restrict__ fused_d
+                , const float* __restrict__ fused_c, float* __restrict__ fused_d
 #endif
                 )
 
@@ -71,7 +71,7 @@ vectoradd_float(const float* __restrict__ a, const float* __restrict__ b, float*
   }
 
 __global__ void
-vectoradd_float2(const float* __restrict__ b, const float* __restrict__ c, float* __restrict__ d)
+vectoradd_float2(const float* __restrict__ c, float* __restrict__ d)
 
   {
 
@@ -80,7 +80,7 @@ vectoradd_float2(const float* __restrict__ b, const float* __restrict__ c, float
 
       int i = y * WIDTH + x;
       if ( i < (WIDTH * HEIGHT)) {
-        d[i] = b[i] + c[i];
+        d[i] = c[i] * 3;
       }
 
   }
@@ -146,7 +146,7 @@ int main() {
                     0, 0,
                     deviceA ,deviceB ,deviceC
 #if 1 || FUSED
-                    , deviceB, deviceC, deviceD
+                    , deviceC, deviceD
 #endif
                     );
 
@@ -155,7 +155,7 @@ int main() {
                     dim3(WIDTH/THREADS_PER_BLOCK_X, HEIGHT/THREADS_PER_BLOCK_Y),
                     dim3(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y),
                     0, 0,
-                    deviceB ,deviceC ,deviceD);
+                    deviceC ,deviceD);
 #endif
   }
   HIP_ASSERT(hipMemcpy(deviceC, hostC, NUM*sizeof(float), hipMemcpyHostToDevice));
@@ -171,7 +171,7 @@ int main() {
                     0, 0,
                     deviceA ,deviceB ,deviceC
 #if 1 || FUSED
-                    , deviceB, deviceC, deviceD
+                    , deviceC, deviceD
 #endif
                     );
 
@@ -181,7 +181,7 @@ int main() {
                     dim3(WIDTH/THREADS_PER_BLOCK_X, HEIGHT/THREADS_PER_BLOCK_Y),
                     dim3(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y),
                     0, 0,
-                    deviceB ,deviceC ,deviceD);
+                    deviceC ,deviceD);
 #endif
   }
 
@@ -194,7 +194,7 @@ int main() {
   // verify the results
   errors = 0;
   for (i = 0; i < NUM; i++) {
-    if (hostD[i] != (hostA[i] + hostB[i] + hostB[i])) {
+    if (hostD[i] != ((hostA[i] + hostB[i]) * 3)) {
       errors++;
     }
   }
