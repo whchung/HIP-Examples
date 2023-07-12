@@ -298,6 +298,28 @@ context_restore_logic.append('\ts_addc_u32_e32' + ' ' + 's' + str(kernarg_segmen
 kernel_metadata_dict[HOST_KERNEL][NEXT_FREE_VGPR] = next_vgpr
 kernel_metadata_dict[HOST_KERNEL][NEXT_FREE_SGPR] = next_sgpr
 
+# Modify SGPR / VGPR allocation on the fused kernel
+done_next_free_vgpr = False
+done_next_free_sgpr = False
+modified_kernel_epilogue_list = []
+for line in kernel_epilogue_list:
+  if done_next_free_vgpr == False or done_next_free_sgpr == False:
+    m = re.search(KERNEL_METADATA_ENTRY_REGEX, line)
+    if m is not None:
+      if m.group(1) == NEXT_FREE_VGPR:
+        done_next_free_vgpr = True
+        modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(next_vgpr))
+      elif m.group(1) == NEXT_FREE_SGPR:
+        done_next_free_sgpr = True
+        modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(next_sgpr))
+      else:
+        modified_kernel_epilogue_list.append(line.rstrip())
+    else:
+      modified_kernel_epilogue_list.append(line.rstrip())
+  else:
+    modified_kernel_epilogue_list.append(line.rstrip())
+kernel_epilogue_list = modified_kernel_epilogue_list
+
 # Manipulate host kernel, disable s_endpgm
 for line_number in range(len(kernel_code_dict[HOST_KERNEL])):
   line = kernel_code_dict[HOST_KERNEL][line_number]
@@ -323,23 +345,5 @@ for line in kernel_prologue_list:
 for line in kernel_code_dict[HOST_KERNEL]:
   print(line)
 
-# Modify SGPR / VGPR allocation on the fused kernel
-done_next_free_vgpr = False
-done_next_free_sgpr = False
 for line in kernel_epilogue_list:
-  # TBD really bad logic. Modify it with more elegant solution.
-  if done_next_free_vgpr == False or done_next_free_sgpr == False:
-    m = re.search(KERNEL_METADATA_ENTRY_REGEX, line)
-    if m is not None:
-      if m.group(1) == NEXT_FREE_VGPR:
-        done_next_free_vgpr = True
-        print('\t\t.' + m.group(1) + ' ' + str(next_vgpr))
-      elif m.group(1) == NEXT_FREE_SGPR:
-        done_next_free_sgpr = True
-        print('\t\t.' + m.group(1) + ' ' + str(next_sgpr))
-      else:
-        print(line.rstrip())
-    else:
-      print(line.rstrip())
-  else:
-    print(line.rstrip())
+  print(line.rstrip())
