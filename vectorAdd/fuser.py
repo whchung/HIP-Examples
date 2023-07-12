@@ -33,6 +33,7 @@ NEXT_FREE_SGPR = r'amdhsa_next_free_sgpr'
 NEXT_FREE_VGPR = r'amdhsa_next_free_vgpr'
 
 KERNARG_SIZE = r'amdhsa_kernarg_size'
+LDS_SIZE = r'amdhsa_group_segment_fixed_size'
 
 SYSTEM_SGPR_WORKGROUP_ID = r'amdhsa_system_sgpr_workgroup_id_'
 
@@ -165,7 +166,11 @@ kernel_code_dict = {}
 kernel_metadata_dict = {}
 
 # Open input file
-input_file = open(INPUT_FILE, "r")
+try:
+  input_file = open(INPUT_FILE, "r")
+except FileNotFoundError:
+  print("Missing input file!")
+  exit()
 
 retrieve_kernel_names(input_file, kernel_name_list)
 
@@ -194,12 +199,27 @@ retrieve_kernel_metadata(GUEST_KERNEL, input_file, kernel_metadata_dict)
 retrieve_sgpr_usage(HOST_KERNEL, kernel_metadata_dict)
 retrieve_sgpr_usage(GUEST_KERNEL, kernel_metadata_dict)
 
-# Retreive kernarg size
+# Retreive kernarg size, compute kernarg offset
+# TBD: kernel signature merge takes place first before this logic could work
 host_kernarg_size = kernel_metadata_dict[HOST_KERNEL][KERNARG_SIZE]
 guest_kernarg_size = kernel_metadata_dict[GUEST_KERNEL][KERNARG_SIZE]
-
-# TBD: kernel signature merge takes place first before this logic could work
 kernarg_offset = host_kernarg_size - guest_kernarg_size
+
+# Retreive LDS size
+host_lds_size = kernel_metadata_dict[HOST_KERNEL][LDS_SIZE]
+guest_lds_size = kernel_metadata_dict[GUEST_KERNEL][LDS_SIZE]
+
+
+# Produce fused metadata
+
+# Manipulate host kernel, modify metadata on LDS usage
+if guest_lds_size > host_lds_size:
+  kernel_metadata_dict[HOST_KERNEL][LDS_SIZE] = guest_lds_size
+
+# TBD Maniuplate host kernel, modify metadata on SGPR/VGPR usage
+
+# TBD Manipulate host kernel, modify metadata on AGPR usage
+
 
 # Produce context save/restore logic
 
@@ -252,7 +272,7 @@ if kernel_metadata_dict[HOST_KERNEL][KERNARG_SEGMENT_PTR] != kernel_metadata_dic
 kernarg_segment_ptr_sgpr_be_updated = kernel_metadata_dict[GUEST_KERNEL][KERNARG_SEGMENT_PTR][0]
 context_restore_logic.append('\ts_addc_u32_e32' + ' ' + 's' + str(kernarg_segment_ptr_sgpr_be_updated) + ', ' + 's' + str(kernarg_segment_ptr_sgpr_be_updated) + ', ' + str(hex(kernarg_offset)))
 
-# Manipulate host kernel, modify metadata
+# Manipulate host kernel, modify metadata on register usage
 kernel_metadata_dict[HOST_KERNEL][NEXT_FREE_VGPR] = next_vgpr
 kernel_metadata_dict[HOST_KERNEL][NEXT_FREE_SGPR] = next_sgpr
 
@@ -270,6 +290,7 @@ for line_number in range(len(kernel_code_dict[GUEST_KERNEL])):
   if m is not None:
     kernel_code_dict[GUEST_KERNEL][line_number] = m.group(1) + r'FUSED_BB' + m.group(2) + '_' + m.group(3) + m.group(4)
 
+# TBD global sync logic between host kernel and guest kernel
 # Start fusion
 kernel_code_dict[HOST_KERNEL] = context_save_logic + kernel_code_dict[HOST_KERNEL] + context_restore_logic + kernel_code_dict[GUEST_KERNEL]
 
