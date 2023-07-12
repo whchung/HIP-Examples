@@ -43,11 +43,9 @@ THE SOFTWARE.
 
 #define NUM       (WIDTH*HEIGHT)
 #define WARMUP    (4)
-#define ROUNDS    (16)
+#define ROUNDS    (64)
 
-#define THREADS_PER_BLOCK_X  16
-#define THREADS_PER_BLOCK_Y  16
-#define THREADS_PER_BLOCK_Z  1
+#define THREADS_PER_BLOCK_X  256
 
 __global__ void 
 vectoradd_float(const float* __restrict__ a, const float* __restrict__ b, float* __restrict__ c
@@ -57,32 +55,16 @@ vectoradd_float(const float* __restrict__ a, const float* __restrict__ b, float*
                 )
 
   {
- 
-      int x = THREADS_PER_BLOCK_X * hipBlockIdx_x + hipThreadIdx_x;
-      int y = THREADS_PER_BLOCK_Y * hipBlockIdx_y + hipThreadIdx_y;
-
-      int i = y * WIDTH + x;
-      if ( i < (WIDTH * HEIGHT)) {
-        c[i] = a[i] + b[i];
-      }
-
-
-
+      int i = THREADS_PER_BLOCK_X * hipBlockIdx_x + hipThreadIdx_x;
+      c[i] = a[i] + b[i];
   }
 
 __global__ void
 vectoradd_float2(const float* __restrict__ c, float* __restrict__ d)
 
   {
-
-      int x = THREADS_PER_BLOCK_X * hipBlockIdx_x + hipThreadIdx_x;
-      int y = THREADS_PER_BLOCK_Y * hipBlockIdx_y + hipThreadIdx_y;
-
-      int i = y * WIDTH + x;
-      if ( i < (WIDTH * HEIGHT)) {
-        d[i] = c[i] * 3;
-      }
-
+      int i = THREADS_PER_BLOCK_X * hipBlockIdx_x + hipThreadIdx_x;
+      d[i] = c[i] * 3;
   }
 
 using namespace std;
@@ -141,8 +123,8 @@ int main() {
   // warm-up
   for (i = 0; i < WARMUP; ++i) {
     hipLaunchKernelGGL(vectoradd_float,
-                    dim3(WIDTH/THREADS_PER_BLOCK_X, HEIGHT/THREADS_PER_BLOCK_Y),
-                    dim3(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y),
+                    dim3(WIDTH*HEIGHT/THREADS_PER_BLOCK_X),
+                    dim3(THREADS_PER_BLOCK_X),
                     0, 0,
                     deviceA ,deviceB ,deviceC
 #if 1 || FUSED
@@ -152,8 +134,8 @@ int main() {
 
 #if !FUSED
     hipLaunchKernelGGL(vectoradd_float2,
-                    dim3(WIDTH/THREADS_PER_BLOCK_X, HEIGHT/THREADS_PER_BLOCK_Y),
-                    dim3(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y),
+                    dim3(WIDTH*HEIGHT/THREADS_PER_BLOCK_X),
+                    dim3(THREADS_PER_BLOCK_X),
                     0, 0,
                     deviceC ,deviceD);
 #endif
@@ -166,8 +148,8 @@ int main() {
 
   for (i = 0; i < ROUNDS; ++i) {
     hipLaunchKernelGGL(vectoradd_float, 
-                    dim3(WIDTH/THREADS_PER_BLOCK_X, HEIGHT/THREADS_PER_BLOCK_Y),
-                    dim3(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y),
+                    dim3(WIDTH*HEIGHT/THREADS_PER_BLOCK_X),
+                    dim3(THREADS_PER_BLOCK_X),
                     0, 0,
                     deviceA ,deviceB ,deviceC
 #if 1 || FUSED
@@ -178,8 +160,8 @@ int main() {
 #if !FUSED 
     // vectoradd_float2 will be fused with vectoradd_float
     hipLaunchKernelGGL(vectoradd_float2, 
-                    dim3(WIDTH/THREADS_PER_BLOCK_X, HEIGHT/THREADS_PER_BLOCK_Y),
-                    dim3(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y),
+                    dim3(WIDTH*HEIGHT/THREADS_PER_BLOCK_X),
+                    dim3(THREADS_PER_BLOCK_X),
                     0, 0,
                     deviceC ,deviceD);
 #endif
@@ -204,7 +186,8 @@ int main() {
   }
   float ms = 0.0f;
   HIP_ASSERT(hipEventElapsedTime(&ms, startEvent, stopEvent));
-  printf("Time: %f ms\n", ms / ROUNDS);
+  printf("Total time: %f ms\n", ms);
+  printf("Per-kernel time: %f ms\n", ms / ROUNDS);
 
   if (errors!=0) {
     printf("FAILED: %d errors\n",errors);
