@@ -38,6 +38,10 @@ SYSTEM_SGPR_WORKGROUP_ID = r'amdhsa_system_sgpr_workgroup_id_'
 
 DIMENSIONS = [ 'x', 'y', 'z' ]
 
+USER_SGPR_CP_COUNT = r'user_sgpr_cp_count'
+USER_SGPR_ADC_COUNT = r'user_sgpr_adc_count'
+KERNARG_SEGMENT_PTR = r'kernarg_segment_ptr'
+
 # Regex
 KERNEL_NAME_REGEX = MAYBE_EMPTY_SPACES + \
                     "(" + KERNEL_METADATA_DIRECTIVE +")" + \
@@ -118,6 +122,37 @@ def retrieve_kernel_metadata(kernel_name, input_stream, output_dict):
         if len(m.groups()) == 2:
           output_dict[kernel_name][m.group(1)] = int(m.group(2))
 
+def retrieve_sgpr_usage(kernel_name, metadata_dict):
+  metadata_dict[kernel_name][USER_SGPR_CP_COUNT] = 0
+  metadata_dict[kernel_name][USER_SGPR_ADC_COUNT] = 0
+  metadata_dict[kernel_name][KERNARG_SEGMENT_PTR] = []
+
+  # user sgprs set by CP
+  # Count user sgprs be used
+  user_sgpr_cp_count = 0
+  for user_sgpr in USER_SGPR_DIRECTIVES:
+    if metadata_dict[kernel_name][user_sgpr] == 1:
+      # record user sgprs used by guest kernel for kernarg segment pointer
+      if user_sgpr == USER_SGPR_DIRECTIVES[KERNARG_SEGMENT_PTR_INDEX]:
+        metadata_dict[kernel_name][KERNARG_SEGMENT_PTR].append(user_sgpr_cp_count)
+        metadata_dict[kernel_name][KERNARG_SEGMENT_PTR].append(user_sgpr_cp_count + 1)
+      user_sgpr_cp_count += USER_SGPR_CONSUMPTION[user_sgpr]
+  metadata_dict[kernel_name][USER_SGPR_CP_COUNT] = user_sgpr_cp_count
+
+  #print("User sgpr set by CP: " + str(user_sgpr_cp_count))
+  #print("Kernarg segment ptr: " + metadata_dict[kernel_name][KERNARG_SEGMENT_PTR])
+
+  # user sgprs set by ADC
+
+  # workgroup ID + workitem ID
+  user_sgpr_adc_count = 0
+  for dim in DIMENSIONS:
+    if kernel_metadata_dict[kernel_name][SYSTEM_SGPR_WORKGROUP_ID + dim] == 1:
+      user_sgpr_adc_count += 1
+  metadata_dict[kernel_name][USER_SGPR_ADC_COUNT] = user_sgpr_adc_count
+
+  #print("User sgpr set by ADC: " + str(user_sgpr_adc_count))
+
 
 # Lists
 kernel_name_list = []
@@ -154,43 +189,15 @@ retrieve_kernel_metadata(GUEST_KERNEL, input_file, kernel_metadata_dict)
 
 
 # Understand context to be saved:
-# TBD consider the case where guest / host kernarg segment ptr sgpr number mismatch
-metadata_dict = kernel_metadata_dict
-kernel_name = GUEST_KERNEL
 
-# user sgprs set by CP
-user_sgpr_cp_count = 0
-kernarg_segment_ptr_sgpr = []
-# Count user sgprs be used
-for user_sgpr in USER_SGPR_DIRECTIVES:
-  if metadata_dict[kernel_name][user_sgpr] == 1:
-    # record user sgprs used by guest kernel for kernarg segment pointer
-    if user_sgpr == USER_SGPR_DIRECTIVES[KERNARG_SEGMENT_PTR_INDEX]:
-      kernarg_segment_ptr_sgpr = [ user_sgpr_cp_count, user_sgpr_cp_count + 1 ]
-    user_sgpr_cp_count += USER_SGPR_CONSUMPTION[user_sgpr]
+# Retrieve kernel SGPR usage
+retrieve_sgpr_usage(HOST_KERNEL, kernel_metadata_dict)
+retrieve_sgpr_usage(GUEST_KERNEL, kernel_metadata_dict)
 
-#print("User sgpr set by CP: " + str(user_sgpr_cp_count))
-#print("Kernarg segment ptr: " + kernarg_segment_ptr_sgpr)
-
-# user sgprs set by ADC
-# workgroup ID + workitem ID
-user_sgpr_adc_count = 0
-for dim in DIMENSIONS:
-  if kernel_metadata_dict[GUEST_KERNEL][SYSTEM_SGPR_WORKGROUP_ID + dim] == 1:
-    user_sgpr_adc_count += 1
-
-#print("User sgpr set by ADC: " + str(user_sgpr_adc_count))
-
-# find next free SGPR / VGPR
-# TBD: need to align between GUEST and HOST
-next_free_sgpr = kernel_metadata_dict[HOST_KERNEL][NEXT_FREE_SGPR]
-next_free_vgpr = kernel_metadata_dict[HOST_KERNEL][NEXT_FREE_VGPR]
-
-#print("Next free SGPR: " + str(next_free_sgpr))
-#print("Next free VGPR: " + str(next_free_vgpr))
-
+# Retreive kernarg size
 host_kernarg_size = kernel_metadata_dict[HOST_KERNEL][KERNARG_SIZE]
 guest_kernarg_size = kernel_metadata_dict[GUEST_KERNEL][KERNARG_SIZE]
+
 # TBD: kernel signature merge takes place first before this logic could work
 kernarg_offset = host_kernarg_size - guest_kernarg_size
 
@@ -202,6 +209,14 @@ context_save_logic.append("\t; save context")
 context_restore_logic = []
 context_restore_logic.append("\t; restore context")
 
+# find next free SGPR / VGPR
+# TBD: need to align between GUEST and HOST
+next_free_sgpr = kernel_metadata_dict[HOST_KERNEL][NEXT_FREE_SGPR]
+next_free_vgpr = kernel_metadata_dict[HOST_KERNEL][NEXT_FREE_VGPR]
+
+#print("Next free SGPR: " + str(next_free_sgpr))
+#print("Next free VGPR: " + str(next_free_vgpr))
+
 # Produce logic to preserve SGPR / VGPR
 next_sgpr = next_free_sgpr
 next_vgpr = next_free_vgpr
@@ -210,10 +225,10 @@ user_sgpr_adc_saved = 0
 for d in range(len(DIMENSIONS)):
   dim = DIMENSIONS[d]
   if kernel_metadata_dict[GUEST_KERNEL][SYSTEM_SGPR_WORKGROUP_ID + dim] == 1:
-    context_save_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(next_sgpr) + ', ' + 's' + str(user_sgpr_cp_count + user_sgpr_adc_saved))
+    context_save_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(next_sgpr) + ', ' + 's' + str(kernel_metadata_dict[GUEST_KERNEL][USER_SGPR_CP_COUNT] + user_sgpr_adc_saved))
     context_save_logic.append('\tv_mov_b32_e32' + ' ' + 'v' + str(next_vgpr) + ', ' + 'v' + str(d))
 
-    context_restore_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(user_sgpr_cp_count + user_sgpr_adc_saved) + ', ' + 's' + str(next_sgpr))
+    context_restore_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(kernel_metadata_dict[GUEST_KERNEL][USER_SGPR_CP_COUNT] + user_sgpr_adc_saved) + ', ' + 's' + str(next_sgpr))
     context_restore_logic.append('\tv_mov_b32_e32' + ' ' + 'v' + str(d) + ', ' + 'v' + str(next_vgpr))
 
     next_sgpr += 1
@@ -223,7 +238,7 @@ for d in range(len(DIMENSIONS)):
 # TBD Produce logic to preserve kernarg segment pointer
 
 # Produce logic to update kernarg segment pointer
-kernarg_segment_ptr_sgpr_be_updated = kernarg_segment_ptr_sgpr[0]
+kernarg_segment_ptr_sgpr_be_updated = kernel_metadata_dict[HOST_KERNEL][KERNARG_SEGMENT_PTR][0]
 context_restore_logic.append('\ts_addc_u32_e32' + ' ' + 's' + str(kernarg_segment_ptr_sgpr_be_updated) + ', ' + 's' + str(kernarg_segment_ptr_sgpr_be_updated) + ', ' + str(hex(kernarg_offset)))
 
 # Manipulate host kernel, modify metadata
@@ -253,6 +268,7 @@ for line in kernel_prologue_list:
 for line in kernel_code_dict[HOST_KERNEL]:
   print(line)
 
+# Modify SGPR / VGPR allocation on the fused kernel
 done_next_free_vgpr = False
 done_next_free_sgpr = False
 for line in kernel_epilogue_list:
@@ -272,4 +288,3 @@ for line in kernel_epilogue_list:
       print(line.rstrip())
   else:
     print(line.rstrip())
-
