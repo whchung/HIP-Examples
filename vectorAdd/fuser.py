@@ -170,7 +170,7 @@ try:
   input_file = open(INPUT_FILE, "r")
 except FileNotFoundError:
   print("Missing input file!")
-  exit()
+  exit(1)
 
 retrieve_kernel_names(input_file, kernel_name_list)
 
@@ -199,15 +199,30 @@ retrieve_kernel_metadata(GUEST_KERNEL, input_file, kernel_metadata_dict)
 retrieve_sgpr_usage(HOST_KERNEL, kernel_metadata_dict)
 retrieve_sgpr_usage(GUEST_KERNEL, kernel_metadata_dict)
 
+# TBD: validate SGPR usage
+
 # Retreive kernarg size, compute kernarg offset
 # TBD: kernel signature merge takes place first before this logic could work
 host_kernarg_size = kernel_metadata_dict[HOST_KERNEL][KERNARG_SIZE]
 guest_kernarg_size = kernel_metadata_dict[GUEST_KERNEL][KERNARG_SIZE]
 kernarg_offset = host_kernarg_size - guest_kernarg_size
+if kernarg_offset < 0:
+  print("Host kernarg size is less than guest!")
+  exit(1)
 
 # Retreive LDS size
 host_lds_size = kernel_metadata_dict[HOST_KERNEL][LDS_SIZE]
 guest_lds_size = kernel_metadata_dict[GUEST_KERNEL][LDS_SIZE]
+
+# Retrieve next free SGPR / VGPR on host kernel
+host_next_free_sgpr = kernel_metadata_dict[HOST_KERNEL][NEXT_FREE_SGPR]
+host_next_free_vgpr = kernel_metadata_dict[HOST_KERNEL][NEXT_FREE_VGPR]
+#print("Next free SGPR on host kernel: " + str(host_next_free_sgpr))
+#print("Next free VGPR on host kernel: " + str(host_next_free_vgpr))
+
+# Retrieve next free SGPR / VGPR on guest kernel
+guest_next_free_sgpr = kernel_metadata_dict[GUEST_KERNEL][NEXT_FREE_SGPR]
+guest_next_free_vgpr = kernel_metadata_dict[GUEST_KERNEL][NEXT_FREE_VGPR]
 
 
 # Produce fused metadata
@@ -216,9 +231,13 @@ guest_lds_size = kernel_metadata_dict[GUEST_KERNEL][LDS_SIZE]
 if guest_lds_size > host_lds_size:
   kernel_metadata_dict[HOST_KERNEL][LDS_SIZE] = guest_lds_size
 
-# TBD Maniuplate host kernel, modify metadata on SGPR/VGPR usage
+# Maniuplate host kernel, modify metadata on SGPR/VGPR usage
+if guest_next_free_sgpr > host_next_free_sgpr:
+  kernel_metadatadict[HOST_KERNEL][NEXT_FREE_SGPR] = guest_next_free_sgpr
+if guest_next_free_vgpr > host_next_free_vgpr:
+  kernel_metadatadict[HOST_KERNEL][NEXT_FREE_VGPR] = guest_next_free_vgpr
 
-# TBD Manipulate host kernel, modify metadata on AGPR usage
+# TBD: Manipulate host kernel, modify metadata on AGPR usage
 
 
 # Produce context save/restore logic
@@ -228,16 +247,9 @@ context_save_logic.append("\t; save context")
 context_restore_logic = []
 context_restore_logic.append("\t; restore context")
 
-# Find next free SGPR / VGPR on host kernel
-next_free_sgpr = kernel_metadata_dict[HOST_KERNEL][NEXT_FREE_SGPR]
-next_free_vgpr = kernel_metadata_dict[HOST_KERNEL][NEXT_FREE_VGPR]
-
-#print("Next free SGPR on host kernel: " + str(next_free_sgpr))
-#print("Next free VGPR on host kernel: " + str(next_free_vgpr))
-
 # Produce logic to preserve SGPR / VGPR
-next_sgpr = next_free_sgpr
-next_vgpr = next_free_vgpr
+next_sgpr = host_next_free_sgpr
+next_vgpr = host_next_free_vgpr
 
 # Product logic to preserve workgroup ID SGPR + workitem ID VGPR
 user_sgpr_adc_saved = 0
@@ -257,7 +269,7 @@ for d in range(len(DIMENSIONS)):
 # Produce logic to preserve kernarg segment pointer
 # Only produce kernarg segment pointer preserving logic in case:
 # - The register number is different between host and guest
-# - (TBD) The registers are overwritten within host
+# - TBD: The registers are overwritten within host
 if kernel_metadata_dict[HOST_KERNEL][KERNARG_SEGMENT_PTR] != kernel_metadata_dict[GUEST_KERNEL][KERNARG_SEGMENT_PTR]:
   host_register = kernel_metadata_dict[HOST_KERNEL][KERNARG_SEGMENT_PTR][0]
   context_save_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(next_sgpr) + ', ' + 's' + str(host_register))
@@ -290,7 +302,8 @@ for line_number in range(len(kernel_code_dict[GUEST_KERNEL])):
   if m is not None:
     kernel_code_dict[GUEST_KERNEL][line_number] = m.group(1) + r'FUSED_BB' + m.group(2) + '_' + m.group(3) + m.group(4)
 
-# TBD global sync logic between host kernel and guest kernel
+# TBD: global sync logic between host kernel and guest kernel
+
 # Start fusion
 kernel_code_dict[HOST_KERNEL] = context_save_logic + kernel_code_dict[HOST_KERNEL] + context_restore_logic + kernel_code_dict[GUEST_KERNEL]
 
