@@ -186,8 +186,8 @@ int main() {
   }
   float ms = 0.0f;
   HIP_ASSERT(hipEventElapsedTime(&ms, startEvent, stopEvent));
-  printf("Total time: %f ms\n", ms);
-  printf("Per-kernel time: %f ms\n", ms / ROUNDS);
+  printf("Total time: %6.3f ms\n", ms);
+  printf("Per-round time: %6.3f us\n", ms / ROUNDS * 1000.0f);
 
   if (errors!=0) {
     printf("FAILED: %d errors\n",errors);
