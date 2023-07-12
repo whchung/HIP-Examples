@@ -174,12 +174,22 @@ except FileNotFoundError:
 
 retrieve_kernel_names(input_file, kernel_name_list)
 
-# # Identify host and guest kernel
-# for kernel_name in kernel_name_list:
-#   if kernel_name == HOST_KERNEL:
-#     print("Host kernel found: " + kernel_name)
-#   elif kernel_name == GUEST_KERNEL:
-#     print("Guest kernel found: " + kernel_name)
+# Identify host and guest kernel
+host_kernel_identified = False
+guest_kernel_identified = False
+for kernel_name in kernel_name_list:
+  if kernel_name == HOST_KERNEL:
+    host_kernel_identified = True
+  elif kernel_name == GUEST_KERNEL:
+    guest_kernel_identified = True
+
+if host_kernel_identified == False:
+  print("Missing host kernel!")
+  exit(1)
+
+if guest_kernel_identified == False:
+  print("Missing guest kernel!")
+  exit(1)
 
 # Get kernel code and metadata
 input_file.seek(0)
@@ -192,12 +202,12 @@ retrieve_kernel_source_code(GUEST_KERNEL, input_file, kernel_code_dict)
 input_file.seek(0)
 retrieve_kernel_metadata(GUEST_KERNEL, input_file, kernel_metadata_dict)
 
-
-# Understand context to be saved:
-
 # Retrieve kernel SGPR usage
 retrieve_sgpr_usage(HOST_KERNEL, kernel_metadata_dict)
 retrieve_sgpr_usage(GUEST_KERNEL, kernel_metadata_dict)
+
+
+# Understand context to be saved:
 
 # TBD: validate SGPR usage
 
@@ -317,7 +327,7 @@ for line in kernel_code_dict[HOST_KERNEL]:
 done_next_free_vgpr = False
 done_next_free_sgpr = False
 for line in kernel_epilogue_list:
-  # XXX really bad logic
+  # TBD really bad logic. Modify it with more elegant solution.
   if done_next_free_vgpr == False or done_next_free_sgpr == False:
     m = re.search(KERNEL_METADATA_ENTRY_REGEX, line)
     if m is not None:
