@@ -274,9 +274,9 @@ if guest_next_free_vgpr > host_next_free_vgpr:
 # Produce context save/restore logic
 
 context_save_logic = []
-context_save_logic.append("\t; save context")
+context_save_logic.append("; save context")
 context_restore_logic = []
-context_restore_logic.append("\t; restore context")
+context_restore_logic.append("; restore context")
 
 # Produce logic to preserve SGPR / VGPR
 next_sgpr = host_next_free_sgpr
