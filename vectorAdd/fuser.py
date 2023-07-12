@@ -4,7 +4,6 @@ import re
 
 # Configuration
 INPUT_FILE = "vectoradd_hip-hip-amdgcn-amd-amdhsa-gfx900.s"
-OUTPUT_FILE = "output.s"
 HOST_KERNEL = "_Z15vectoradd_floatPKfS0_PfS0_S1_"
 GUEST_KERNEL = "_Z16vectoradd_float2PKfPf"
 
