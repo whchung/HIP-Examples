@@ -202,25 +202,24 @@ guest_kernarg_size = kernel_metadata_dict[GUEST_KERNEL][KERNARG_SIZE]
 kernarg_offset = host_kernarg_size - guest_kernarg_size
 
 # Produce context save/restore logic
-# TBD: consider SGPRs used by CP, align between GUEST and HOST
 
 context_save_logic = []
 context_save_logic.append("\t; save context")
 context_restore_logic = []
 context_restore_logic.append("\t; restore context")
 
-# find next free SGPR / VGPR
-# TBD: need to align between GUEST and HOST
+# Find next free SGPR / VGPR on host kernel
 next_free_sgpr = kernel_metadata_dict[HOST_KERNEL][NEXT_FREE_SGPR]
 next_free_vgpr = kernel_metadata_dict[HOST_KERNEL][NEXT_FREE_VGPR]
 
-#print("Next free SGPR: " + str(next_free_sgpr))
-#print("Next free VGPR: " + str(next_free_vgpr))
+#print("Next free SGPR on host kernel: " + str(next_free_sgpr))
+#print("Next free VGPR on host kernel: " + str(next_free_vgpr))
 
 # Produce logic to preserve SGPR / VGPR
 next_sgpr = next_free_sgpr
 next_vgpr = next_free_vgpr
 
+# Product logic to preserve workgroup ID SGPR + workitem ID VGPR
 user_sgpr_adc_saved = 0
 for d in range(len(DIMENSIONS)):
   dim = DIMENSIONS[d]
@@ -235,10 +234,22 @@ for d in range(len(DIMENSIONS)):
     next_vgpr += 1
     user_sgpr_adc_saved += 1
 
-# TBD Produce logic to preserve kernarg segment pointer
+# Produce logic to preserve kernarg segment pointer
+# Only produce kernarg segment pointer preserving logic in case:
+# - The register number is different between host and guest
+# - (TBD) The registers are overwritten within host
+if kernel_metadata_dict[HOST_KERNEL][KERNARG_SEGMENT_PTR] != kernel_metadata_dict[GUEST_KERNEL][KERNARG_SEGMENT_PTR]:
+  host_register = kernel_metadata_dict[HOST_KERNEL][KERNARG_SEGMENT_PTR][0]
+  context_save_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(next_sgpr) + ', ' + 's' + str(host_register))
+  context_save_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(next_sgpr + 1) + ', ' + 's' + str(host_register + 1))
 
-# Produce logic to update kernarg segment pointer
-kernarg_segment_ptr_sgpr_be_updated = kernel_metadata_dict[HOST_KERNEL][KERNARG_SEGMENT_PTR][0]
+  guest_register = kernel_metadata_dict[GUEST_KERNEL][KERNARG_SEGMENT_PTR][0]
+  context_restore_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(guest_register) + ', ' + 's' + str(next_sgpr))
+  context_restore_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(guest_register + 1) + ', ' + 's' + str(next_sgpr + 1))
+  next_sgpr += 2
+
+# Produce logic to update kernarg segment pointer for the guest kernel
+kernarg_segment_ptr_sgpr_be_updated = kernel_metadata_dict[GUEST_KERNEL][KERNARG_SEGMENT_PTR][0]
 context_restore_logic.append('\ts_addc_u32_e32' + ' ' + 's' + str(kernarg_segment_ptr_sgpr_be_updated) + ', ' + 's' + str(kernarg_segment_ptr_sgpr_be_updated) + ', ' + str(hex(kernarg_offset)))
 
 # Manipulate host kernel, modify metadata
