@@ -26,7 +26,12 @@ USER_SGPR_CONSUMPTION = { r'amdhsa_user_sgpr_private_segment_buffer' : 4, \
                           r'amdhsa_user_sgpr_kernarg_segment_ptr' : 2, \
                           r'amdhsa_user_sgpr_dispatch_id' : 2, \
                           r'amdhsa_user_sgpr_flat_scratch_init': 2 }
+PRIVATE_SEGMENT_BUFFER_INDEX = 0
+DISPATCH_PTR_INDEX = 1
+QUEUE_PTR_INDEX = 2
 KERNARG_SEGMENT_PTR_INDEX = 3
+DISPATCH_ID = 4
+FLAT_SCRATCH_INIT = 5
 
 NEXT_FREE_SGPR = r'amdhsa_next_free_sgpr'
 NEXT_FREE_VGPR = r'amdhsa_next_free_vgpr'
@@ -205,13 +210,33 @@ retrieve_kernel_metadata(GUEST_KERNEL, input_file, kernel_metadata_dict)
 retrieve_sgpr_usage(HOST_KERNEL, kernel_metadata_dict)
 retrieve_sgpr_usage(GUEST_KERNEL, kernel_metadata_dict)
 
+# Validate SGPR usage
+#
+# If guest uses, host must also uses:
+# - DISPATCH_PTR_INDEX = 1
+# - QUEUE_PTR_INDEX = 2
+# - KERNARG_SEGMENT_PTR_INDEX = 3
+# Not important:
+# - PRIVATE_SEGMENT_BUFFER_INDEX = 0
+# - DISPATCH_ID = 4
+# - FLAT_SCRATCH_INIT = 5
+if kernel_metadata_dict[GUEST_KERNEL][USER_SGPR_DIRECTIVES[DISPATCH_PTR_INDEX]] == 1 and \
+   kernel_metadata_dict[HOST_KERNEL][USER_SGPR_DIRECTIVES[DISPATCH_PTR_INDEX]] != 1:
+  print("Host doesn't use dispatch ptr while guest uses dispatch ptr!")
+  exit(1)
 
-# Understand context to be saved:
+if kernel_metadata_dict[GUEST_KERNEL][USER_SGPR_DIRECTIVES[QUEUE_PTR_INDEX]] == 1 and \
+   kernel_metadata_dict[HOST_KERNEL][USER_SGPR_DIRECTIVES[QUEUE_PTR_INDEX]] != 1:
+  print("Host doesn't use queue ptr while guest uses queue ptr!")
+  exit(1)
 
-# TBD: validate SGPR usage
+if kernel_metadata_dict[GUEST_KERNEL][USER_SGPR_DIRECTIVES[KERNARG_SEGMENT_PTR_INDEX]] == 1 and \
+   kernel_metadata_dict[HOST_KERNEL][USER_SGPR_DIRECTIVES[KERNARG_SEGMENT_PTR_INDEX]] != 1:
+  print("Host doesn't use kernarg segment ptr while guest uses kernarg segment ptr!")
+  exit(1)
 
 # Retreive kernarg size, compute kernarg offset
-# TBD: kernel signature merge takes place first before this logic could work
+# Kernel signature merge takes place first before this logic could work
 host_kernarg_size = kernel_metadata_dict[HOST_KERNEL][KERNARG_SIZE]
 guest_kernarg_size = kernel_metadata_dict[GUEST_KERNEL][KERNARG_SIZE]
 kernarg_offset = host_kernarg_size - guest_kernarg_size
@@ -233,7 +258,6 @@ host_next_free_vgpr = kernel_metadata_dict[HOST_KERNEL][NEXT_FREE_VGPR]
 guest_next_free_sgpr = kernel_metadata_dict[GUEST_KERNEL][NEXT_FREE_SGPR]
 guest_next_free_vgpr = kernel_metadata_dict[GUEST_KERNEL][NEXT_FREE_VGPR]
 
-
 # Produce fused metadata
 
 # Manipulate host kernel, modify metadata on LDS usage
@@ -241,13 +265,11 @@ if guest_lds_size > host_lds_size:
   kernel_metadata_dict[HOST_KERNEL][LDS_SIZE] = guest_lds_size
 
 # Maniuplate host kernel, modify metadata on SGPR/VGPR usage
+# TBD: Manipulate host kernel, modify metadata on AGPR usage
 if guest_next_free_sgpr > host_next_free_sgpr:
   kernel_metadatadict[HOST_KERNEL][NEXT_FREE_SGPR] = guest_next_free_sgpr
 if guest_next_free_vgpr > host_next_free_vgpr:
   kernel_metadatadict[HOST_KERNEL][NEXT_FREE_VGPR] = guest_next_free_vgpr
-
-# TBD: Manipulate host kernel, modify metadata on AGPR usage
-
 
 # Produce context save/restore logic
 
