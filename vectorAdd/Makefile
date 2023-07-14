@@ -28,7 +28,7 @@ $(EXECUTABLE): $(OBJECTS)
 fuse: $(EXECUTABLE) test
 	./fuser.py > fused.s
 	./assemble.sh
-	./fused.exe
+	LD_PRELOAD=~/hipamd/build/lib/libamdhip64.so ./fused.exe
 
 test: $(EXECUTABLE)
 	$(EXECUTABLE)

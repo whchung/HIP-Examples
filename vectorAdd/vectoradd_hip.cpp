@@ -49,9 +49,6 @@ THE SOFTWARE.
 
 __global__ void 
 vectoradd_float(const float* __restrict__ a, const float* __restrict__ b, float* __restrict__ c
-#if 1 || FUSED
-                , const float* __restrict__ fused_c, float* __restrict__ fused_d
-#endif
                 )
 
   {
@@ -127,18 +124,13 @@ int main() {
                     dim3(THREADS_PER_BLOCK_X),
                     0, 0,
                     deviceA ,deviceB ,deviceC
-#if 1 || FUSED
-                    , deviceC, deviceD
-#endif
                     );
 
-#if !FUSED
     hipLaunchKernelGGL(vectoradd_float2,
                     dim3(WIDTH*HEIGHT/THREADS_PER_BLOCK_X),
                     dim3(THREADS_PER_BLOCK_X),
                     0, 0,
                     deviceC ,deviceD);
-#endif
   }
   HIP_ASSERT(hipMemcpy(deviceC, hostC, NUM*sizeof(float), hipMemcpyHostToDevice));
   HIP_ASSERT(hipMemcpy(deviceD, hostD, NUM*sizeof(float), hipMemcpyHostToDevice));
@@ -152,19 +144,14 @@ int main() {
                     dim3(THREADS_PER_BLOCK_X),
                     0, 0,
                     deviceA ,deviceB ,deviceC
-#if 1 || FUSED
-                    , deviceC, deviceD
-#endif
                     );
 
-#if !FUSED 
     // vectoradd_float2 will be fused with vectoradd_float
     hipLaunchKernelGGL(vectoradd_float2, 
                     dim3(WIDTH*HEIGHT/THREADS_PER_BLOCK_X),
                     dim3(THREADS_PER_BLOCK_X),
                     0, 0,
                     deviceC ,deviceD);
-#endif
   }
 
   HIP_ASSERT(hipEventRecord(stopEvent, nullptr));

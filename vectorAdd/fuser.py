@@ -4,7 +4,7 @@ import re
 
 # Configuration
 INPUT_FILE = "vectoradd_hip-hip-amdgcn-amd-amdhsa-gfx900.s"
-HOST_KERNEL = "_Z15vectoradd_floatPKfS0_PfS0_S1_"
+HOST_KERNEL = "_Z15vectoradd_floatPKfS0_Pf"
 GUEST_KERNEL = "_Z16vectoradd_float2PKfPf"
 
 # Constants
@@ -239,10 +239,11 @@ if kernel_metadata_dict[GUEST_KERNEL][USER_SGPR_DIRECTIVES[KERNARG_SEGMENT_PTR_I
 # Kernel signature merge takes place first before this logic could work
 host_kernarg_size = kernel_metadata_dict[HOST_KERNEL][KERNARG_SIZE]
 guest_kernarg_size = kernel_metadata_dict[GUEST_KERNEL][KERNARG_SIZE]
-kernarg_offset = host_kernarg_size - guest_kernarg_size
-if kernarg_offset < 0:
-  print("Host kernarg size is less than guest!")
-  exit(1)
+#kernarg_offset = host_kernarg_size - guest_kernarg_size
+#if kernarg_offset < 0:
+#  print("Host kernarg size is less than guest!")
+#  exit(1)
+kernarg_offset = host_kernarg_size
 
 # Retreive LDS size
 host_lds_size = kernel_metadata_dict[HOST_KERNEL][LDS_SIZE]
@@ -259,6 +260,9 @@ guest_next_free_sgpr = kernel_metadata_dict[GUEST_KERNEL][NEXT_FREE_SGPR]
 guest_next_free_vgpr = kernel_metadata_dict[GUEST_KERNEL][NEXT_FREE_VGPR]
 
 # Produce fused metadata
+
+# Manipulate host kernel, modify metadata on kernarg segment size
+kernel_metadata_dict[HOST_KERNEL][KERNARG_SIZE] = host_kernarg_size + guest_kernarg_size
 
 # Manipulate host kernel, modify metadata on LDS usage
 if guest_lds_size > host_lds_size:
@@ -320,11 +324,13 @@ kernel_metadata_dict[HOST_KERNEL][NEXT_FREE_VGPR] = next_vgpr
 kernel_metadata_dict[HOST_KERNEL][NEXT_FREE_SGPR] = next_sgpr
 
 # Modify SGPR / VGPR allocation on the fused kernel
+# Modify kernarg size on the fused kernel
 done_next_free_vgpr = False
 done_next_free_sgpr = False
+done_kernarg_size = False
 modified_kernel_epilogue_list = []
 for line in kernel_epilogue_list:
-  if done_next_free_vgpr == False or done_next_free_sgpr == False:
+  if done_next_free_vgpr == False or done_next_free_sgpr == False or done_kernarg_size == False:
     m = re.search(KERNEL_METADATA_ENTRY_REGEX, line)
     if m is not None:
       if m.group(1) == NEXT_FREE_VGPR:
@@ -333,6 +339,9 @@ for line in kernel_epilogue_list:
       elif m.group(1) == NEXT_FREE_SGPR:
         done_next_free_sgpr = True
         modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(next_sgpr))
+      elif m.group(1) == KERNARG_SIZE:
+        done_kernarg_size = True
+        modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(host_kernarg_size + guest_kernarg_size))
       else:
         modified_kernel_epilogue_list.append(line.rstrip())
     else:
