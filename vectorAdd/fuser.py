@@ -1,9 +1,11 @@
 #!/usr/bin/python3
 
 import re
+import sys
 
 # Configuration
 INPUT_FILE = "vectoradd_hip-hip-amdgcn-amd-amdhsa-gfx900.s"
+FUSED_MANIFEST_FILE = "fused_manifest.txt"
 HOST_KERNEL = "_Z15vectoradd_floatPKfS0_Pf"
 GUEST_KERNEL = "_Z16vectoradd_float2PKfPf"
 
@@ -169,6 +171,13 @@ kernel_epilogue_list = []
 kernel_code_dict = {}
 kernel_metadata_dict = {}
 
+if len(sys.argv) >= 2:
+  INPUT_FILE = sys.argv[1]
+
+manifest_mode = False
+if len(sys.argv) == 3:
+  manifest_mode = True
+
 # Open input file
 try:
   input_file = open(INPUT_FILE, "r")
@@ -177,6 +186,22 @@ except FileNotFoundError:
   exit(1)
 
 retrieve_kernel_names(input_file, kernel_name_list)
+
+if manifest_mode == True:
+  for kernel_name in kernel_name_list:
+    print(kernel_name)
+  exit(0)
+else:
+  # Open fused manifest file if possible
+  try:
+    fused_manifest_file = open(FUSED_MANIFEST_FILE, "r")
+  except FileNotFoundError:
+    print("Missing manifest file, try use default values")
+
+if fused_manifest_file is not None:
+  manifest_lines = fused_manifest_file.readlines()
+  HOST_KERNEL = manifest_lines[0].rstrip()
+  GUEST_KERNEL = manifest_lines[1].rstrip()
 
 # Identify host and guest kernel
 host_kernel_identified = False

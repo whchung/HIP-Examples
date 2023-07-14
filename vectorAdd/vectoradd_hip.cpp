@@ -48,7 +48,7 @@ THE SOFTWARE.
 #define THREADS_PER_BLOCK_X  256
 
 __global__ void 
-vectoradd_float(const float* __restrict__ a, const float* __restrict__ b, float* __restrict__ c
+kernel1(const float* __restrict__ a, const float* __restrict__ b, float* __restrict__ c
                 )
 
   {
@@ -57,7 +57,7 @@ vectoradd_float(const float* __restrict__ a, const float* __restrict__ b, float*
   }
 
 __global__ void
-vectoradd_float2(const float* __restrict__ c, float* __restrict__ d)
+kernel2(const float* __restrict__ c, float* __restrict__ d)
 
   {
       int i = THREADS_PER_BLOCK_X * hipBlockIdx_x + hipThreadIdx_x;
@@ -119,14 +119,14 @@ int main() {
 
   // warm-up
   for (i = 0; i < WARMUP; ++i) {
-    hipLaunchKernelGGL(vectoradd_float,
+    hipLaunchKernelGGL(kernel1,
                     dim3(WIDTH*HEIGHT/THREADS_PER_BLOCK_X),
                     dim3(THREADS_PER_BLOCK_X),
                     0, 0,
                     deviceA ,deviceB ,deviceC
                     );
 
-    hipLaunchKernelGGL(vectoradd_float2,
+    hipLaunchKernelGGL(kernel2,
                     dim3(WIDTH*HEIGHT/THREADS_PER_BLOCK_X),
                     dim3(THREADS_PER_BLOCK_X),
                     0, 0,
@@ -139,15 +139,15 @@ int main() {
   HIP_ASSERT(hipEventRecord(startEvent, nullptr));
 
   for (i = 0; i < ROUNDS; ++i) {
-    hipLaunchKernelGGL(vectoradd_float, 
+    hipLaunchKernelGGL(kernel1, 
                     dim3(WIDTH*HEIGHT/THREADS_PER_BLOCK_X),
                     dim3(THREADS_PER_BLOCK_X),
                     0, 0,
                     deviceA ,deviceB ,deviceC
                     );
 
-    // vectoradd_float2 will be fused with vectoradd_float
-    hipLaunchKernelGGL(vectoradd_float2, 
+    // kernel2 will be fused with vectoradd_float
+    hipLaunchKernelGGL(kernel2, 
                     dim3(WIDTH*HEIGHT/THREADS_PER_BLOCK_X),
                     dim3(THREADS_PER_BLOCK_X),
                     0, 0,

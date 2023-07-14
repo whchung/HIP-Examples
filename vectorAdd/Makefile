@@ -5,12 +5,12 @@ endif
 
 HIPCC=$(HIP_PATH)/bin/hipcc
 
-TARGET=hcc
-
-SOURCES = vectoradd_hip.cpp
+FILENAME = vectoradd_hip
+SOURCES = $(FILENAME).cpp
 OBJECTS = $(SOURCES:.cpp=.o)
+GFXARCH = $(shell rocm_agent_enumerator | tail -1)
 
-EXECUTABLE=./vectoradd_hip.exe
+EXECUTABLE=./$(FILENAME).exe
 
 .PHONY: test
 
@@ -27,10 +27,11 @@ $(EXECUTABLE): $(OBJECTS)
 
 fuse: $(EXECUTABLE) test
 	@echo "\n==== Kernel Fusion ====\n"
-	./fuser.py > fused.s
+	./fuser.py $(FILENAME)-hip-amdgcn-amd-amdhsa-$(GFXARCH).s manifest > fused_manifest.txt
+	./fuser.py $(FILENAME)-hip-amdgcn-amd-amdhsa-$(GFXARCH).s > fused.s
 	./assemble.sh
-	AMD_KERNEL_FUSION_HOST=_Z15vectoradd_floatPKfS0_Pf AMD_KERNEL_FUSION_GUEST=_Z16vectoradd_float2PKfPf LD_PRELOAD=~/hipamd/build/lib/libamdhip64.so ./fused.exe
-	@AMD_LOG_LEVEL=4 LD_PRELOAD=~/hipamd/build/lib/libamdhip64.so AMD_KERNEL_FUSION_HOST=_Z15vectoradd_floatPKfS0_Pf AMD_KERNEL_FUSION_GUEST=_Z16vectoradd_float2PKfPf ./fused.exe 1>/dev/null 2>run.log
+	AMD_KERNEL_FUSION_HOST=`head -1 fused_manifest.txt` AMD_KERNEL_FUSION_GUEST=`tail -1 fused_manifest.txt` LD_PRELOAD=~/hipamd/build/lib/libamdhip64.so ./fused.exe
+	@AMD_LOG_LEVEL=4 AMD_KERNEL_FUSION_HOST=`head -1 fused_manifest.txt` AMD_KERNEL_FUSION_GUEST=`tail -1 fused_manifest.txt` LD_PRELOAD=~/hipamd/build/lib/libamdhip64.so ./fused.exe 1>/dev/null 2>run.log
 	@echo "Number of AQL packets submitted: `grep kernel_obj run.log | wc -l`"
 	@rm -f run.log
 
@@ -45,6 +46,6 @@ clean:
 	@rm -f $(EXECUTABLE)
 	@rm -f $(OBJECTS)
 	@rm -f *.o
-	@rm -f vectoradd_hip-*
+	@rm -f $(FILENAME)-*
 	@rm -f $(SOURCES)-*
-	@rm -f fused.s fused.exe
+	@rm -f fused_manifest.txt fused.s fused.exe
