@@ -4,7 +4,7 @@ ifeq (,$(HIP_PATH))
 endif
 
 HIPCC=$(HIP_PATH)/bin/hipcc
-HIP_LIBRARY=~/hipamd/build/lib/libamdhip64.so
+HIP_LIBRARY=~/projects/hipamd/build/lib/libamdhip64.so
 
 FILENAME = vectoradd_hip
 SOURCES = $(FILENAME).cpp
