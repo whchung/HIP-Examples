@@ -326,11 +326,20 @@ for d in range(len(DIMENSIONS)):
     next_vgpr += 1
     user_sgpr_adc_saved += 1
 
+# Detect if SGPR for kernarg segment pointer has been modified in the host kernel
+kernarg_segment_ptr_sgpr_modified = False
+for line in kernel_code_dict[HOST_KERNEL]:
+  for sgpr in kernel_metadata_dict[HOST_KERNEL][KERNARG_SEGMENT_PTR]:
+    m = re.search(r'^[ \t]+[a-z0-9_]+ s' + str(sgpr), line)
+    if m is not None:
+      kernarg_segment_ptr_sgpr_modified = True
+      break
+
 # Produce logic to preserve kernarg segment pointer
-# Only produce kernarg segment pointer preserving logic in case:
+# Only produce kernarg segment pointer preserving logic in case of one of the followings:
 # - The register number is different between host and guest
-# - TBD: The registers are overwritten within host
-if kernel_metadata_dict[HOST_KERNEL][KERNARG_SEGMENT_PTR] != kernel_metadata_dict[GUEST_KERNEL][KERNARG_SEGMENT_PTR]:
+# - The registers are overwritten within host
+if kernarg_segment_ptr_sgpr_modified or (kernel_metadata_dict[HOST_KERNEL][KERNARG_SEGMENT_PTR] != kernel_metadata_dict[GUEST_KERNEL][KERNARG_SEGMENT_PTR]):
   host_register = kernel_metadata_dict[HOST_KERNEL][KERNARG_SEGMENT_PTR][0]
   context_save_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(next_sgpr) + ', ' + 's' + str(host_register))
   context_save_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(next_sgpr + 1) + ', ' + 's' + str(host_register + 1))
