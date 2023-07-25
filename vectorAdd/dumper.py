@@ -48,26 +48,30 @@ code_object_filename = re.sub(r'[=]', '', code_object_filename) + ".co"
 symbols = run_external_binary(LLVM_OBJDUMP_PATH, ["-t", code_object_filename])
 descriptor_address = 0
 descriptor_length = 0
+kernel_address = 0
+kernel_length = 0
 for line in symbols.splitlines():
   m = re.search(RCCL_KERNEL_NAME, line)
   if m is not None:
     tokens = line.split()
     if tokens[3] == ".text":
-      #print("Kernel code: " + tokens[6]) 
-      #print("Address: " + tokens[0])
-      #print("Length: " + tokens[4])
+      print("\nKernel code: " + tokens[6]) 
+      print("Address: " + tokens[0])
+      print("Length: " + tokens[4])
+      kernel_address = int(tokens[0], 16)
+      kernel_length = int(tokens[4], 16)
       pass
     elif tokens[3] == ".rodata":
-      #print("Kernel desc: " + tokens[6]) 
-      #print("Address: " + tokens[0])
-      #print("Length: " + tokens[4])
+      print("\nKernel desc: " + tokens[6]) 
+      print("Address: " + tokens[0])
+      print("Length: " + tokens[4])
       descriptor_address = int(tokens[0], 16)
       descriptor_length = int(tokens[4], 16)
 
 # get descriptor
-# TBD parse each item
 descriptor_raw_text = run_external_binary(LLVM_OBJDUMP_PATH, ["-s", "--section=.rodata", code_object_filename])
 descriptor_length_remaining = descriptor_length
+descriptor = []
 for line in descriptor_raw_text.splitlines()[2:]:
   tokens = line.split()
   if int(tokens[0], 16) == descriptor_address:
@@ -75,13 +79,59 @@ for line in descriptor_raw_text.splitlines()[2:]:
 
   if descriptor_found == True:
     descriptor_length_remaining = descriptor_length_remaining - 16
-    #print(line)
+    for token in tokens[1:5]:
+      for byte in range(4):
+        descriptor.append(int(token[byte * 2 : byte * 2 + 2], 16))
+    print(line)
 
   if descriptor_length_remaining <= 0:
     break
 
+def fetch_number(byte_list, offset, length):
+  value = 0
+  for i in range(length):
+    value = value + 256 ** i * byte_list[i + offset]
+  return value
+
+def fetch_subbyte_number(byte_list, offset_in_bits, length_in_bits):
+  value = fetch_number(byte_list, 0, 4)
+  #print(value)
+  mask = ((1 << length_in_bits) - 1) << offset_in_bits
+  #print(mask)
+  extracted_bits = (value & mask) >> offset_in_bits
+  return extracted_bits
+
+# Obtain LDS size
+lds_size = fetch_number(descriptor, 0, 4)
+print("GROUP SEGMENT: " + str(lds_size))
+
+# Obtain kernarg size
+kernarg_size = fetch_number(descriptor, 8, 4) 
+print("KERNARG: " + str(kernarg_size))
+
+# Obtain information from RSRC1
+print("VGPR: " + str(fetch_subbyte_number(descriptor[48:], 0, 6) * 8))
+print("SGPR: " + str(fetch_subbyte_number(descriptor[48:], 6, 4) * 16))
+
+# Obtain information from RSRC2
+print("PRIVATE SEGMENT: " + str(fetch_subbyte_number(descriptor[52:], 0, 1)))
+print("USER SGPR COUNT: " + str(fetch_subbyte_number(descriptor[52:], 1, 5)))
+print("SGPR WORKGROUP ID X: " + str(fetch_subbyte_number(descriptor[52:], 7, 1)))
+print("SGPR WORKGROUP ID Y: " + str(fetch_subbyte_number(descriptor[52:], 8, 1)))
+print("SGPR WORKGROUP ID Z: " + str(fetch_subbyte_number(descriptor[52:], 9, 1)))
+workitem_id_enum = fetch_subbyte_number(descriptor[52:], 11, 2)
+if workitem_id_enum == 0:
+  print("VGPR WORKITEM ID: X")
+elif workitem_id_enum == 1:
+  print("VGPR WORKITEM ID: X / Y")
+elif workitem_id_enum == 2:
+  print("VGPR WORKITEM ID: X / Y / Z")
+
+# Obtain information from RSRC3
+print("AGPR ACCUM OFFSET: " + str(fetch_subbyte_number(descriptor[44:], 0, 6) * 4))
+
 # disassemble ISA
 isa = run_external_binary(LLVM_OBJDUMP_PATH, ["--disassemble-symbols=" + RCCL_KERNEL_NAME, code_object_filename])
 isa = isa.splitlines()[5:]
-for line in isa:
-  print(line)
+#for line in isa:
+#  print(line)
