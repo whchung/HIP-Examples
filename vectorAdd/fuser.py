@@ -177,6 +177,189 @@ def retrieve_sgpr_usage(kernel_name, metadata_dict):
 
   #print("User sgpr set by ADC: " + str(user_sgpr_adc_count))
 
+def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kernel, kernel_prologue_list, kernel_epilogue_list, guest_kernel_is_from_binary = False):
+
+  # Guest kernel extract from binary doesn't contain such information. Skip the checks.
+  if guest_kernel_is_from_binary != True:
+    # Validate SGPR usage
+    #
+    # If guest uses, host must also uses:
+    # - DISPATCH_PTR_INDEX = 1
+    # - QUEUE_PTR_INDEX = 2
+    # - KERNARG_SEGMENT_PTR_INDEX = 3
+    # Not important:
+    # - PRIVATE_SEGMENT_BUFFER_INDEX = 0
+    # - DISPATCH_ID = 4
+    # - FLAT_SCRATCH_INIT = 5
+    if kernel_metadata_dict[guest_kernel][USER_SGPR_DIRECTIVES[DISPATCH_PTR_INDEX]] == 1 and \
+       kernel_metadata_dict[host_kernel][USER_SGPR_DIRECTIVES[DISPATCH_PTR_INDEX]] != 1:
+      print("Host doesn't use dispatch ptr while guest uses dispatch ptr!")
+      exit(1)
+    
+    if kernel_metadata_dict[guest_kernel][USER_SGPR_DIRECTIVES[QUEUE_PTR_INDEX]] == 1 and \
+       kernel_metadata_dict[host_kernel][USER_SGPR_DIRECTIVES[QUEUE_PTR_INDEX]] != 1:
+      print("Host doesn't use queue ptr while guest uses queue ptr!")
+      exit(1)
+    
+    if kernel_metadata_dict[guest_kernel][USER_SGPR_DIRECTIVES[KERNARG_SEGMENT_PTR_INDEX]] == 1 and \
+       kernel_metadata_dict[host_kernel][USER_SGPR_DIRECTIVES[KERNARG_SEGMENT_PTR_INDEX]] != 1:
+      print("Host doesn't use kernarg segment ptr while guest uses kernarg segment ptr!")
+      exit(1)
+  
+  # Retreive kernarg size, compute kernarg offset
+  # Kernel signature merge takes place first before this logic could work
+  host_kernarg_size = kernel_metadata_dict[host_kernel][KERNARG_SIZE]
+  guest_kernarg_size = kernel_metadata_dict[guest_kernel][KERNARG_SIZE]
+  #kernarg_offset = host_kernarg_size - guest_kernarg_size
+  #if kernarg_offset < 0:
+  #  print("Host kernarg size is less than guest!")
+  #  exit(1)
+  kernarg_offset = host_kernarg_size
+  
+  # Retreive LDS size
+  host_lds_size = kernel_metadata_dict[host_kernel][LDS_SIZE]
+  guest_lds_size = kernel_metadata_dict[guest_kernel][LDS_SIZE]
+  
+  # Retrieve next free SGPR / VGPR on host kernel
+  host_next_free_sgpr = kernel_metadata_dict[host_kernel][NEXT_FREE_SGPR]
+  host_next_free_vgpr = kernel_metadata_dict[host_kernel][NEXT_FREE_VGPR]
+  #print("Next free SGPR on host kernel: " + str(host_next_free_sgpr))
+  #print("Next free VGPR on host kernel: " + str(host_next_free_vgpr))
+  
+  # Retrieve next free SGPR / VGPR on guest kernel
+  guest_next_free_sgpr = kernel_metadata_dict[guest_kernel][NEXT_FREE_SGPR]
+  guest_next_free_vgpr = kernel_metadata_dict[guest_kernel][NEXT_FREE_VGPR]
+  
+  # Produce fused metadata
+  
+  # Manipulate host kernel, modify metadata on kernarg segment size
+  kernel_metadata_dict[host_kernel][KERNARG_SIZE] = host_kernarg_size + guest_kernarg_size
+  
+  # Manipulate host kernel, modify metadata on LDS usage
+  if guest_lds_size > host_lds_size:
+    kernel_metadata_dict[host_kernel][LDS_SIZE] = guest_lds_size
+  
+  # Maniuplate host kernel, modify metadata on SGPR/VGPR usage
+  # TBD: Manipulate host kernel, modify metadata on AGPR usage
+  if guest_next_free_sgpr > host_next_free_sgpr:
+    kernel_metadatadict[host_kernel][NEXT_FREE_SGPR] = guest_next_free_sgpr
+  if guest_next_free_vgpr > host_next_free_vgpr:
+    kernel_metadatadict[host_kernel][NEXT_FREE_VGPR] = guest_next_free_vgpr
+  
+  # Produce context save/restore logic
+  
+  context_save_logic = []
+  context_save_logic.append("; save context")
+  context_restore_logic = []
+  context_restore_logic.append("; restore context")
+  
+  # Produce logic to preserve SGPR / VGPR
+  next_sgpr = host_next_free_sgpr
+  next_vgpr = host_next_free_vgpr
+  
+  # Product logic to preserve workgroup ID SGPR + workitem ID VGPR
+  user_sgpr_adc_saved = 0
+  for d in range(len(DIMENSIONS)):
+    dim = DIMENSIONS[d]
+    if kernel_metadata_dict[guest_kernel][SYSTEM_SGPR_WORKGROUP_ID + dim] == 1:
+      context_save_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(next_sgpr) + ', ' + 's' + str(kernel_metadata_dict[guest_kernel][USER_SGPR_CP_COUNT] + user_sgpr_adc_saved))
+      context_save_logic.append('\tv_mov_b32_e32' + ' ' + 'v' + str(next_vgpr) + ', ' + 'v' + str(d))
+  
+      context_restore_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(kernel_metadata_dict[guest_kernel][USER_SGPR_CP_COUNT] + user_sgpr_adc_saved) + ', ' + 's' + str(next_sgpr))
+      context_restore_logic.append('\tv_mov_b32_e32' + ' ' + 'v' + str(d) + ', ' + 'v' + str(next_vgpr))
+  
+      next_sgpr += 1
+      next_vgpr += 1
+      user_sgpr_adc_saved += 1
+  
+  # Detect if SGPR for kernarg segment pointer has been modified in the host kernel
+  kernarg_segment_ptr_sgpr_modified = False
+  for line in kernel_code_dict[host_kernel]:
+    for sgpr in kernel_metadata_dict[host_kernel][KERNARG_SEGMENT_PTR]:
+      m = re.search(r'^[ \t]+[a-z0-9_]+ s' + str(sgpr), line)
+      if m is not None:
+        kernarg_segment_ptr_sgpr_modified = True
+        break
+  
+  # Produce logic to preserve kernarg segment pointer
+  # Only produce kernarg segment pointer preserving logic in case of one of the followings:
+  # - The register number is different between host and guest
+  # - The registers are overwritten within host
+  if kernarg_segment_ptr_sgpr_modified or (kernel_metadata_dict[host_kernel][KERNARG_SEGMENT_PTR] != kernel_metadata_dict[guest_kernel][KERNARG_SEGMENT_PTR]):
+    host_register = kernel_metadata_dict[host_kernel][KERNARG_SEGMENT_PTR][0]
+    context_save_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(next_sgpr) + ', ' + 's' + str(host_register))
+    context_save_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(next_sgpr + 1) + ', ' + 's' + str(host_register + 1))
+  
+    guest_register = kernel_metadata_dict[guest_kernel][KERNARG_SEGMENT_PTR][0]
+    context_restore_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(guest_register) + ', ' + 's' + str(next_sgpr))
+    context_restore_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(guest_register + 1) + ', ' + 's' + str(next_sgpr + 1))
+    next_sgpr += 2
+  
+  # Produce logic to update kernarg segment pointer for the guest kernel
+  kernarg_segment_ptr_sgpr_be_updated = kernel_metadata_dict[guest_kernel][KERNARG_SEGMENT_PTR][0]
+  context_restore_logic.append('\ts_addc_u32_e32' + ' ' + 's' + str(kernarg_segment_ptr_sgpr_be_updated) + ', ' + 's' + str(kernarg_segment_ptr_sgpr_be_updated) + ', ' + str(hex(kernarg_offset)))
+  
+  # Manipulate host kernel, modify metadata on register usage
+  kernel_metadata_dict[host_kernel][NEXT_FREE_VGPR] = next_vgpr
+  kernel_metadata_dict[host_kernel][NEXT_FREE_SGPR] = next_sgpr
+  
+  # Modify SGPR / VGPR allocation on the fused kernel
+  # Modify kernarg size on the fused kernel
+  done_next_free_vgpr = False
+  done_next_free_sgpr = False
+  done_kernarg_size = False
+  modified_kernel_epilogue_list = []
+  for line in kernel_epilogue_list:
+    if done_next_free_vgpr == False or done_next_free_sgpr == False or done_kernarg_size == False:
+      m = re.search(KERNEL_METADATA_ENTRY_REGEX, line)
+      if m is not None:
+        if m.group(1) == NEXT_FREE_VGPR:
+          done_next_free_vgpr = True
+          modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(next_vgpr))
+        elif m.group(1) == NEXT_FREE_SGPR:
+          done_next_free_sgpr = True
+          modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(next_sgpr))
+        elif m.group(1) == KERNARG_SIZE:
+          done_kernarg_size = True
+          modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(host_kernarg_size + guest_kernarg_size))
+        else:
+          modified_kernel_epilogue_list.append(line.rstrip())
+      else:
+        modified_kernel_epilogue_list.append(line.rstrip())
+    else:
+      modified_kernel_epilogue_list.append(line.rstrip())
+  kernel_epilogue_list = modified_kernel_epilogue_list
+  
+  # Manipulate host kernel, disable s_endpgm
+  for line_number in range(len(kernel_code_dict[host_kernel])):
+    line = kernel_code_dict[host_kernel][line_number]
+    m = re.search(r'^[ \t]+s_endpgm', line)
+    if m is not None:
+      kernel_code_dict[host_kernel][line_number] = "\t;s_endpgm"
+  
+  # Skip renaming BBs if guest kernel is extracted from binary.
+  if guest_kernel_is_from_binary != True:
+    # Manipulate guest kernel, rename BBs
+    for line_number in range(len(kernel_code_dict[guest_kernel])):
+      line = kernel_code_dict[guest_kernel][line_number]
+      m = re.search(r'(.*)BB(\d+)_(\d+)(.*)', line)
+      if m is not None:
+        kernel_code_dict[guest_kernel][line_number] = m.group(1) + r'FUSED_BB' + m.group(2) + '_' + m.group(3) + m.group(4)
+  
+  # TBD: global sync logic between host kernel and guest kernel
+  
+  # Start fusion
+  kernel_code_dict[host_kernel] = context_save_logic + kernel_code_dict[host_kernel] + context_restore_logic + kernel_code_dict[guest_kernel]
+  
+  for line in kernel_prologue_list:
+    print(line.rstrip())
+  
+  for line in kernel_code_dict[host_kernel]:
+    print(line)
+  
+  for line in kernel_epilogue_list:
+    print(line.rstrip())
+
 def main():
   # Lists
   kernel_name_list = []
@@ -252,183 +435,9 @@ def main():
   # Retrieve kernel SGPR usage
   retrieve_sgpr_usage(HOST_KERNEL, kernel_metadata_dict)
   retrieve_sgpr_usage(GUEST_KERNEL, kernel_metadata_dict)
+
+  fuse_kernel(kernel_code_dict, kernel_metadata_dict, HOST_KERNEL, GUEST_KERNEL, kernel_prologue_list, kernel_epilogue_list)
   
-  # Validate SGPR usage
-  #
-  # If guest uses, host must also uses:
-  # - DISPATCH_PTR_INDEX = 1
-  # - QUEUE_PTR_INDEX = 2
-  # - KERNARG_SEGMENT_PTR_INDEX = 3
-  # Not important:
-  # - PRIVATE_SEGMENT_BUFFER_INDEX = 0
-  # - DISPATCH_ID = 4
-  # - FLAT_SCRATCH_INIT = 5
-  if kernel_metadata_dict[GUEST_KERNEL][USER_SGPR_DIRECTIVES[DISPATCH_PTR_INDEX]] == 1 and \
-     kernel_metadata_dict[HOST_KERNEL][USER_SGPR_DIRECTIVES[DISPATCH_PTR_INDEX]] != 1:
-    print("Host doesn't use dispatch ptr while guest uses dispatch ptr!")
-    exit(1)
-  
-  if kernel_metadata_dict[GUEST_KERNEL][USER_SGPR_DIRECTIVES[QUEUE_PTR_INDEX]] == 1 and \
-     kernel_metadata_dict[HOST_KERNEL][USER_SGPR_DIRECTIVES[QUEUE_PTR_INDEX]] != 1:
-    print("Host doesn't use queue ptr while guest uses queue ptr!")
-    exit(1)
-  
-  if kernel_metadata_dict[GUEST_KERNEL][USER_SGPR_DIRECTIVES[KERNARG_SEGMENT_PTR_INDEX]] == 1 and \
-     kernel_metadata_dict[HOST_KERNEL][USER_SGPR_DIRECTIVES[KERNARG_SEGMENT_PTR_INDEX]] != 1:
-    print("Host doesn't use kernarg segment ptr while guest uses kernarg segment ptr!")
-    exit(1)
-  
-  # Retreive kernarg size, compute kernarg offset
-  # Kernel signature merge takes place first before this logic could work
-  host_kernarg_size = kernel_metadata_dict[HOST_KERNEL][KERNARG_SIZE]
-  guest_kernarg_size = kernel_metadata_dict[GUEST_KERNEL][KERNARG_SIZE]
-  #kernarg_offset = host_kernarg_size - guest_kernarg_size
-  #if kernarg_offset < 0:
-  #  print("Host kernarg size is less than guest!")
-  #  exit(1)
-  kernarg_offset = host_kernarg_size
-  
-  # Retreive LDS size
-  host_lds_size = kernel_metadata_dict[HOST_KERNEL][LDS_SIZE]
-  guest_lds_size = kernel_metadata_dict[GUEST_KERNEL][LDS_SIZE]
-  
-  # Retrieve next free SGPR / VGPR on host kernel
-  host_next_free_sgpr = kernel_metadata_dict[HOST_KERNEL][NEXT_FREE_SGPR]
-  host_next_free_vgpr = kernel_metadata_dict[HOST_KERNEL][NEXT_FREE_VGPR]
-  #print("Next free SGPR on host kernel: " + str(host_next_free_sgpr))
-  #print("Next free VGPR on host kernel: " + str(host_next_free_vgpr))
-  
-  # Retrieve next free SGPR / VGPR on guest kernel
-  guest_next_free_sgpr = kernel_metadata_dict[GUEST_KERNEL][NEXT_FREE_SGPR]
-  guest_next_free_vgpr = kernel_metadata_dict[GUEST_KERNEL][NEXT_FREE_VGPR]
-  
-  # Produce fused metadata
-  
-  # Manipulate host kernel, modify metadata on kernarg segment size
-  kernel_metadata_dict[HOST_KERNEL][KERNARG_SIZE] = host_kernarg_size + guest_kernarg_size
-  
-  # Manipulate host kernel, modify metadata on LDS usage
-  if guest_lds_size > host_lds_size:
-    kernel_metadata_dict[HOST_KERNEL][LDS_SIZE] = guest_lds_size
-  
-  # Maniuplate host kernel, modify metadata on SGPR/VGPR usage
-  # TBD: Manipulate host kernel, modify metadata on AGPR usage
-  if guest_next_free_sgpr > host_next_free_sgpr:
-    kernel_metadatadict[HOST_KERNEL][NEXT_FREE_SGPR] = guest_next_free_sgpr
-  if guest_next_free_vgpr > host_next_free_vgpr:
-    kernel_metadatadict[HOST_KERNEL][NEXT_FREE_VGPR] = guest_next_free_vgpr
-  
-  # Produce context save/restore logic
-  
-  context_save_logic = []
-  context_save_logic.append("; save context")
-  context_restore_logic = []
-  context_restore_logic.append("; restore context")
-  
-  # Produce logic to preserve SGPR / VGPR
-  next_sgpr = host_next_free_sgpr
-  next_vgpr = host_next_free_vgpr
-  
-  # Product logic to preserve workgroup ID SGPR + workitem ID VGPR
-  user_sgpr_adc_saved = 0
-  for d in range(len(DIMENSIONS)):
-    dim = DIMENSIONS[d]
-    if kernel_metadata_dict[GUEST_KERNEL][SYSTEM_SGPR_WORKGROUP_ID + dim] == 1:
-      context_save_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(next_sgpr) + ', ' + 's' + str(kernel_metadata_dict[GUEST_KERNEL][USER_SGPR_CP_COUNT] + user_sgpr_adc_saved))
-      context_save_logic.append('\tv_mov_b32_e32' + ' ' + 'v' + str(next_vgpr) + ', ' + 'v' + str(d))
-  
-      context_restore_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(kernel_metadata_dict[GUEST_KERNEL][USER_SGPR_CP_COUNT] + user_sgpr_adc_saved) + ', ' + 's' + str(next_sgpr))
-      context_restore_logic.append('\tv_mov_b32_e32' + ' ' + 'v' + str(d) + ', ' + 'v' + str(next_vgpr))
-  
-      next_sgpr += 1
-      next_vgpr += 1
-      user_sgpr_adc_saved += 1
-  
-  # Detect if SGPR for kernarg segment pointer has been modified in the host kernel
-  kernarg_segment_ptr_sgpr_modified = False
-  for line in kernel_code_dict[HOST_KERNEL]:
-    for sgpr in kernel_metadata_dict[HOST_KERNEL][KERNARG_SEGMENT_PTR]:
-      m = re.search(r'^[ \t]+[a-z0-9_]+ s' + str(sgpr), line)
-      if m is not None:
-        kernarg_segment_ptr_sgpr_modified = True
-        break
-  
-  # Produce logic to preserve kernarg segment pointer
-  # Only produce kernarg segment pointer preserving logic in case of one of the followings:
-  # - The register number is different between host and guest
-  # - The registers are overwritten within host
-  if kernarg_segment_ptr_sgpr_modified or (kernel_metadata_dict[HOST_KERNEL][KERNARG_SEGMENT_PTR] != kernel_metadata_dict[GUEST_KERNEL][KERNARG_SEGMENT_PTR]):
-    host_register = kernel_metadata_dict[HOST_KERNEL][KERNARG_SEGMENT_PTR][0]
-    context_save_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(next_sgpr) + ', ' + 's' + str(host_register))
-    context_save_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(next_sgpr + 1) + ', ' + 's' + str(host_register + 1))
-  
-    guest_register = kernel_metadata_dict[GUEST_KERNEL][KERNARG_SEGMENT_PTR][0]
-    context_restore_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(guest_register) + ', ' + 's' + str(next_sgpr))
-    context_restore_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(guest_register + 1) + ', ' + 's' + str(next_sgpr + 1))
-    next_sgpr += 2
-  
-  # Produce logic to update kernarg segment pointer for the guest kernel
-  kernarg_segment_ptr_sgpr_be_updated = kernel_metadata_dict[GUEST_KERNEL][KERNARG_SEGMENT_PTR][0]
-  context_restore_logic.append('\ts_addc_u32_e32' + ' ' + 's' + str(kernarg_segment_ptr_sgpr_be_updated) + ', ' + 's' + str(kernarg_segment_ptr_sgpr_be_updated) + ', ' + str(hex(kernarg_offset)))
-  
-  # Manipulate host kernel, modify metadata on register usage
-  kernel_metadata_dict[HOST_KERNEL][NEXT_FREE_VGPR] = next_vgpr
-  kernel_metadata_dict[HOST_KERNEL][NEXT_FREE_SGPR] = next_sgpr
-  
-  # Modify SGPR / VGPR allocation on the fused kernel
-  # Modify kernarg size on the fused kernel
-  done_next_free_vgpr = False
-  done_next_free_sgpr = False
-  done_kernarg_size = False
-  modified_kernel_epilogue_list = []
-  for line in kernel_epilogue_list:
-    if done_next_free_vgpr == False or done_next_free_sgpr == False or done_kernarg_size == False:
-      m = re.search(KERNEL_METADATA_ENTRY_REGEX, line)
-      if m is not None:
-        if m.group(1) == NEXT_FREE_VGPR:
-          done_next_free_vgpr = True
-          modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(next_vgpr))
-        elif m.group(1) == NEXT_FREE_SGPR:
-          done_next_free_sgpr = True
-          modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(next_sgpr))
-        elif m.group(1) == KERNARG_SIZE:
-          done_kernarg_size = True
-          modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(host_kernarg_size + guest_kernarg_size))
-        else:
-          modified_kernel_epilogue_list.append(line.rstrip())
-      else:
-        modified_kernel_epilogue_list.append(line.rstrip())
-    else:
-      modified_kernel_epilogue_list.append(line.rstrip())
-  kernel_epilogue_list = modified_kernel_epilogue_list
-  
-  # Manipulate host kernel, disable s_endpgm
-  for line_number in range(len(kernel_code_dict[HOST_KERNEL])):
-    line = kernel_code_dict[HOST_KERNEL][line_number]
-    m = re.search(r'^[ \t]+s_endpgm', line)
-    if m is not None:
-      kernel_code_dict[HOST_KERNEL][line_number] = "\t;s_endpgm"
-  
-  # Manipulate guest kernel, rename BBs
-  for line_number in range(len(kernel_code_dict[GUEST_KERNEL])):
-    line = kernel_code_dict[GUEST_KERNEL][line_number]
-    m = re.search(r'(.*)BB(\d+)_(\d+)(.*)', line)
-    if m is not None:
-      kernel_code_dict[GUEST_KERNEL][line_number] = m.group(1) + r'FUSED_BB' + m.group(2) + '_' + m.group(3) + m.group(4)
-  
-  # TBD: global sync logic between host kernel and guest kernel
-  
-  # Start fusion
-  kernel_code_dict[HOST_KERNEL] = context_save_logic + kernel_code_dict[HOST_KERNEL] + context_restore_logic + kernel_code_dict[GUEST_KERNEL]
-  
-  for line in kernel_prologue_list:
-    print(line.rstrip())
-  
-  for line in kernel_code_dict[HOST_KERNEL]:
-    print(line)
-  
-  for line in kernel_epilogue_list:
-    print(line.rstrip())
 
 if __name__ == "__main__":
     main()
