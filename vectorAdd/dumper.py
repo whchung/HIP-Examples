@@ -10,8 +10,8 @@ LLVM_OBJDUMP_PATH = "/opt/rocm/llvm/bin/llvm-objdump"
 
 GFXARCH_REGEX = r'^.*gfx90a:xnack-[ \t]+(.+)'
 
-LIBRCCL_PATH = "/home/whchung/rccl/build/librccl.so"
-RCCL_KERNEL_NAME = "_Z42ncclKernel_SendRecv_RING_SIMPLE_Sum_int8_tP11ncclDevCommPvP8ncclWork"
+LIBRCCL_PATH = "/home/jack/projects/rccl/build/librccl.so"
+RCCL_KERNEL_NAME = "_Z42ncclKernel_SendRecv_RING_SIMPLE_Sum_int8_tP11ncclDevCommmP8ncclWork"
 
 def run_external_binary(binary_path, arguments=[]):
     try:
@@ -171,12 +171,12 @@ def main():
   code_object_filename = get_code_object(LIBRCCL_PATH)
   [descriptor_address, descriptor_length, kernel_address, kernel_length] = get_symbol(code_object_filename, RCCL_KERNEL_NAME)
 
-  descriptor_dict = get_descriptor(code_object_filename, descriptor_address, descriptor_length)
-  print(descriptor_dict)
+  #descriptor_dict = get_descriptor(code_object_filename, descriptor_address, descriptor_length)
+  #print(descriptor_dict)
 
-  #isa = get_isa(code_object_filename, RCCL_KERNEL_NAME)
-  #for line in isa:
-  #  print(line)
+  isa = get_isa(code_object_filename, RCCL_KERNEL_NAME)
+  for line in isa:
+    print(line)
 
 if __name__ == "__main__":
   main()
