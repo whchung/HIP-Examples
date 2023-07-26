@@ -119,6 +119,10 @@ def get_descriptor(code_object_filename, descriptor_address, descriptor_length):
   kernarg_size = fetch_number(descriptor, 8, 4) 
   descriptor_dict["amdhsa_kernarg_size"] = kernarg_size
   #print("KERNARG: " + str(kernarg_size))
+
+  # TBD. See if registers for kernarg segment pointers are computable.
+  # Hard-code here for now.
+  descriptor_dict["kernarg_segment_ptr"] = [4, 5]
   
   # Obtain information from RSRC1
   next_free_sgpr = fetch_subbyte_number(descriptor[48:], 6, 4) * 16
@@ -130,6 +134,11 @@ def get_descriptor(code_object_filename, descriptor_address, descriptor_length):
   
   # Obtain information from RSRC2
   #print("PRIVATE SEGMENT: " + str(fetch_subbyte_number(descriptor[52:], 0, 1)))
+  user_sgpr_cp_count = fetch_subbyte_number(descriptor[52:], 1, 5)
+  #descriptor_dict["user_sgpr_cp_count"] = user_sgpr_cp_count
+  # XXX. TBD Hard code as 6 for now. This must be reviewed.
+  descriptor_dict["user_sgpr_cp_count"] = 6
+  #print("Guest user_sgpr_cp_count: " + str(user_sgpr_cp_count))
   #print("USER SGPR COUNT: " + str(fetch_subbyte_number(descriptor[52:], 1, 5)))
 
   descriptor_dict["amdhsa_system_sgpr_workgroup_id_x"] = fetch_subbyte_number(descriptor[52:], 7, 1)
@@ -165,9 +174,9 @@ def main():
   descriptor_dict = get_descriptor(code_object_filename, descriptor_address, descriptor_length)
   print(descriptor_dict)
 
-  isa = get_isa(code_object_filename, RCCL_KERNEL_NAME)
-  for line in isa:
-    print(line)
+  #isa = get_isa(code_object_filename, RCCL_KERNEL_NAME)
+  #for line in isa:
+  #  print(line)
 
 if __name__ == "__main__":
   main()
