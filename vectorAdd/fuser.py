@@ -8,8 +8,8 @@ import dumper
 # Configuration
 INPUT_FILE = "vectoradd_hip-hip-amdgcn-amd-amdhsa-gfx900.s"
 FUSED_MANIFEST_FILE = "fused_manifest.txt"
-HOST_KERNEL = "_Z15vectoradd_floatPKfS0_Pf"
-GUEST_KERNEL = "_Z16vectoradd_float2PKfPf"
+HOST_KERNEL = '_Z7kernel1PKfS0_Pf'
+GUEST_KERNEL = '_Z7kernel2PKfPf'
 
 # Constants
 MAYBE_EMPTY_SPACES = r'[ \t]*'
@@ -68,16 +68,6 @@ KERNEL_METADATA_ENTRY_REGEX = MAYBE_EMPTY_SPACES + r'\.(\w+)' + NON_EMPTY_SPACES
 # RCCL-related constants
 LIBRCCL_PATH = "/home/whchung/rccl/build/librccl.so"
 RCCL_KERNEL_NAME = "_Z42ncclKernel_SendRecv_RING_SIMPLE_Sum_int8_tP11ncclDevCommPvP8ncclWork"
-
-# Test use dumper
-def test_use_dumper():
-  code_object_filename = dumper.get_code_object(LIBRCCL_PATH)
-  [descriptor_address, descriptor_length, kernel_address, kernel_length] = dumper.get_symbol(code_object_filename, RCCL_KERNEL_NAME)
-  descriptor_dict = dumper.get_descriptor(code_object_filename, descriptor_address, descriptor_length)
-  isa = dumper.get_isa(code_object_filename, RCCL_KERNEL_NAME)
-  for line in isa:
-    print(line)
-  print(descriptor_dict)
 
 # Parse input file, retrieve kernel names
 def retrieve_kernel_names(input_stream, output_list):
@@ -242,9 +232,9 @@ def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kerne
   # Maniuplate host kernel, modify metadata on SGPR/VGPR usage
   # TBD: Manipulate host kernel, modify metadata on AGPR usage
   if guest_next_free_sgpr > host_next_free_sgpr:
-    kernel_metadatadict[host_kernel][NEXT_FREE_SGPR] = guest_next_free_sgpr
+    kernel_metadata_dict[host_kernel][NEXT_FREE_SGPR] = guest_next_free_sgpr
   if guest_next_free_vgpr > host_next_free_vgpr:
-    kernel_metadatadict[host_kernel][NEXT_FREE_VGPR] = guest_next_free_vgpr
+    kernel_metadata_dict[host_kernel][NEXT_FREE_VGPR] = guest_next_free_vgpr
   
   # Produce context save/restore logic
   
@@ -254,15 +244,15 @@ def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kerne
   context_restore_logic.append("; restore context")
   
   # Produce logic to preserve SGPR / VGPR
-  next_sgpr = host_next_free_sgpr
-  next_vgpr = host_next_free_vgpr
+  next_sgpr = kernel_metadata_dict[host_kernel][NEXT_FREE_SGPR]
+  next_vgpr = kernel_metadata_dict[host_kernel][NEXT_FREE_VGPR]
   
   # Product logic to preserve workgroup ID SGPR + workitem ID VGPR
   user_sgpr_adc_saved = 0
   for d in range(len(DIMENSIONS)):
     dim = DIMENSIONS[d]
     if kernel_metadata_dict[guest_kernel][SYSTEM_SGPR_WORKGROUP_ID + dim] == 1:
-      context_save_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(next_sgpr) + ', ' + 's' + str(kernel_metadata_dict[guest_kernel][USER_SGPR_CP_COUNT] + user_sgpr_adc_saved))
+      context_save_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(next_sgpr) + ', ' + 's' + str(kernel_metadata_dict[host_kernel][USER_SGPR_CP_COUNT] + user_sgpr_adc_saved))
       context_save_logic.append('\tv_mov_b32_e32' + ' ' + 'v' + str(next_vgpr) + ', ' + 'v' + str(d))
   
       context_restore_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(kernel_metadata_dict[guest_kernel][USER_SGPR_CP_COUNT] + user_sgpr_adc_saved) + ', ' + 's' + str(next_sgpr))
@@ -299,18 +289,26 @@ def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kerne
   kernarg_segment_ptr_sgpr_be_updated = kernel_metadata_dict[guest_kernel][KERNARG_SEGMENT_PTR][0]
   context_restore_logic.append('\ts_addc_u32_e32' + ' ' + 's' + str(kernarg_segment_ptr_sgpr_be_updated) + ', ' + 's' + str(kernarg_segment_ptr_sgpr_be_updated) + ', ' + str(hex(kernarg_offset)))
   
+  # Produce comment to indicate the beginning of host kernel
+  context_save_logic.append("; begin of host kernel")
+
+  # Produce comment to indicate the beginning of fused kernel
+  context_restore_logic.append("; begin of guest kernel")
+
   # Manipulate host kernel, modify metadata on register usage
   kernel_metadata_dict[host_kernel][NEXT_FREE_VGPR] = next_vgpr
   kernel_metadata_dict[host_kernel][NEXT_FREE_SGPR] = next_sgpr
   
   # Modify SGPR / VGPR allocation on the fused kernel
   # Modify kernarg size on the fused kernel
+  # Modify LDS size on the fused kernel
   done_next_free_vgpr = False
   done_next_free_sgpr = False
   done_kernarg_size = False
+  done_group_segment_fixed_size = False
   modified_kernel_epilogue_list = []
   for line in kernel_epilogue_list:
-    if done_next_free_vgpr == False or done_next_free_sgpr == False or done_kernarg_size == False:
+    if done_next_free_vgpr == False or done_next_free_sgpr == False or done_kernarg_size == False or done_group_segment_fixed_size == False:
       m = re.search(KERNEL_METADATA_ENTRY_REGEX, line)
       if m is not None:
         if m.group(1) == NEXT_FREE_VGPR:
@@ -322,6 +320,9 @@ def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kerne
         elif m.group(1) == KERNARG_SIZE:
           done_kernarg_size = True
           modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(host_kernarg_size + guest_kernarg_size))
+        elif m.group(1) == LDS_SIZE:
+          done_group_segment_fixed_size = True
+          modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(kernel_metadata_dict[host_kernel][LDS_SIZE]))
         else:
           modified_kernel_epilogue_list.append(line.rstrip())
       else:
@@ -438,7 +439,72 @@ def main():
 
   fuse_kernel(kernel_code_dict, kernel_metadata_dict, HOST_KERNEL, GUEST_KERNEL, kernel_prologue_list, kernel_epilogue_list)
   
+# Test use dumper
+def test_use_dumper():
+  code_object_filename = dumper.get_code_object(LIBRCCL_PATH)
+  [descriptor_address, descriptor_length, kernel_address, kernel_length] = dumper.get_symbol(code_object_filename, RCCL_KERNEL_NAME)
+  descriptor_dict = dumper.get_descriptor(code_object_filename, descriptor_address, descriptor_length)
+  isa = dumper.get_isa(code_object_filename, RCCL_KERNEL_NAME)
+  for line in isa:
+    print(line)
+  print(descriptor_dict)
 
+def test_fuse_with_dumper():
+  # Lists
+  kernel_name_list = []
+  
+  kernel_prologue_list = []
+  kernel_epilogue_list = []
+  
+  # Dicts
+  kernel_code_dict = {}
+  kernel_metadata_dict = {}
+  
+  input_filename = INPUT_FILE
+  if len(sys.argv) >= 2:
+    input_filename = sys.argv[1]
+  
+  manifest_mode = False
+  if len(sys.argv) == 3:
+    manifest_mode = True
+  
+  # Open input file
+  try:
+    input_file = open(input_filename, "r")
+  except FileNotFoundError:
+    print("Missing input file!")
+    exit(1)
+  
+  retrieve_kernel_names(input_file, kernel_name_list)
+  
+  # Identify host kernel
+  host_kernel_identified = False
+  for kernel_name in kernel_name_list:
+    if kernel_name == HOST_KERNEL:
+      host_kernel_identified = True
+  
+  if host_kernel_identified == False:
+    print("Missing host kernel!")
+    exit(1)
+  
+  # Get kernel code and metadata
+  input_file.seek(0)
+  retrieve_kernel_source_code(HOST_KERNEL, input_file, kernel_code_dict, True, kernel_prologue_list, kernel_epilogue_list)
+  input_file.seek(0)
+  retrieve_kernel_metadata(HOST_KERNEL, input_file, kernel_metadata_dict)
+  
+  # Retrieve kernel SGPR usage
+  retrieve_sgpr_usage(HOST_KERNEL, kernel_metadata_dict)
+
+  # Obtain guest kernel from dumper
+  code_object_filename = dumper.get_code_object(LIBRCCL_PATH)
+  [descriptor_address, descriptor_length, kernel_address, kernel_length] = dumper.get_symbol(code_object_filename, RCCL_KERNEL_NAME)
+  kernel_metadata_dict[GUEST_KERNEL] = dumper.get_descriptor(code_object_filename, descriptor_address, descriptor_length)
+  kernel_code_dict[GUEST_KERNEL] = dumper.get_isa(code_object_filename, RCCL_KERNEL_NAME)
+
+  fuse_kernel(kernel_code_dict, kernel_metadata_dict, HOST_KERNEL, GUEST_KERNEL, kernel_prologue_list, kernel_epilogue_list, True)
+  
 if __name__ == "__main__":
     main()
     #test_use_dumper()
+    #test_fuse_with_dumper()
