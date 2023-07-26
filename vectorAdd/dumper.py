@@ -62,7 +62,7 @@ def get_code_object(library_path):
   return code_object_filename
 
 
-def get_symbols(code_object_filename):
+def get_symbol(code_object_filename, symbol_name):
   # dump symbols
   symbols = run_external_binary(LLVM_OBJDUMP_PATH, ["-t", code_object_filename])
   descriptor_address = 0
@@ -70,7 +70,7 @@ def get_symbols(code_object_filename):
   kernel_address = 0
   kernel_length = 0
   for line in symbols.splitlines():
-    m = re.search(RCCL_KERNEL_NAME, line)
+    m = re.search(symbol_name, line)
     if m is not None:
       tokens = line.split()
       if tokens[3] == ".text":
@@ -152,20 +152,20 @@ def get_descriptor(code_object_filename, descriptor_address, descriptor_length):
 
   return descriptor_dict
 
-def get_isa(code_object_filename):
+def get_isa(code_object_filename, symbol_name):
   # disassemble ISA
-  isa = run_external_binary(LLVM_OBJDUMP_PATH, ["--disassemble-symbols=" + RCCL_KERNEL_NAME, code_object_filename])
+  isa = run_external_binary(LLVM_OBJDUMP_PATH, ["--disassemble-symbols=" + symbol_name, code_object_filename])
   isa = isa.splitlines()[5:]
   return isa
 
 def main():
   code_object_filename = get_code_object(LIBRCCL_PATH)
-  [descriptor_address, descriptor_length, kernel_address, kernel_length] = get_symbols(code_object_filename)
+  [descriptor_address, descriptor_length, kernel_address, kernel_length] = get_symbol(code_object_filename, RCCL_KERNEL_NAME)
 
   descriptor_dict = get_descriptor(code_object_filename, descriptor_address, descriptor_length)
   print(descriptor_dict)
 
-  isa = get_isa(code_object_filename)
+  isa = get_isa(code_object_filename, RCCL_KERNEL_NAME)
   for line in isa:
     print(line)
 
