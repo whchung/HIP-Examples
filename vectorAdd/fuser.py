@@ -66,8 +66,8 @@ KERNEL_METADATA_ENTRY_REGEX = MAYBE_EMPTY_SPACES + r'\.(\w+)' + NON_EMPTY_SPACES
 
 
 # RCCL-related constants
-LIBRCCL_PATH = "/home/whchung/rccl/build/librccl.so"
-RCCL_KERNEL_NAME = "_Z42ncclKernel_SendRecv_RING_SIMPLE_Sum_int8_tP11ncclDevCommPvP8ncclWork"
+LIBRCCL_PATH = "/home/jack/projects/rccl/build/librccl.so"
+RCCL_KERNEL_NAME = "_Z42ncclKernel_SendRecv_RING_SIMPLE_Sum_int8_tP11ncclDevCommmP8ncclWork"
 
 # Parse input file, retrieve kernel names
 def retrieve_kernel_names(input_stream, output_list):
@@ -219,22 +219,8 @@ def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kerne
   # Retrieve next free SGPR / VGPR on guest kernel
   guest_next_free_sgpr = kernel_metadata_dict[guest_kernel][NEXT_FREE_SGPR]
   guest_next_free_vgpr = kernel_metadata_dict[guest_kernel][NEXT_FREE_VGPR]
-  
-  # Produce fused metadata
-  
-  # Manipulate host kernel, modify metadata on kernarg segment size
-  kernel_metadata_dict[host_kernel][KERNARG_SIZE] = host_kernarg_size + guest_kernarg_size
-  
-  # Manipulate host kernel, modify metadata on LDS usage
-  if guest_lds_size > host_lds_size:
-    kernel_metadata_dict[host_kernel][LDS_SIZE] = guest_lds_size
-  
-  # Maniuplate host kernel, modify metadata on SGPR/VGPR usage
-  # TBD: Manipulate host kernel, modify metadata on AGPR usage
-  if guest_next_free_sgpr > host_next_free_sgpr:
-    kernel_metadata_dict[host_kernel][NEXT_FREE_SGPR] = guest_next_free_sgpr
-  if guest_next_free_vgpr > host_next_free_vgpr:
-    kernel_metadata_dict[host_kernel][NEXT_FREE_VGPR] = guest_next_free_vgpr
+  #print("Next free SGPR on guest kernel: " + str(guest_next_free_sgpr))
+  #print("Next free VGPR on guest kernel: " + str(guest_next_free_vgpr))
   
   # Produce context save/restore logic
   
@@ -295,9 +281,26 @@ def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kerne
   # Produce comment to indicate the beginning of fused kernel
   context_restore_logic.append("; begin of guest kernel")
 
-  # Manipulate host kernel, modify metadata on register usage
-  kernel_metadata_dict[host_kernel][NEXT_FREE_VGPR] = next_vgpr
-  kernel_metadata_dict[host_kernel][NEXT_FREE_SGPR] = next_sgpr
+  # Produce fused metadata
+  
+  # Manipulate host kernel, modify metadata on kernarg segment size
+  kernel_metadata_dict[host_kernel][KERNARG_SIZE] = host_kernarg_size + guest_kernarg_size
+  
+  # Manipulate host kernel, modify metadata on LDS usage
+  if guest_lds_size > host_lds_size:
+    kernel_metadata_dict[host_kernel][LDS_SIZE] = guest_lds_size
+  
+  # Maniuplate host kernel, modify metadata on SGPR/VGPR usage
+  # TBD: Manipulate host kernel, modify metadata on AGPR usage
+  if guest_next_free_sgpr > host_next_free_sgpr:
+    kernel_metadata_dict[host_kernel][NEXT_FREE_SGPR] = guest_next_free_sgpr
+  if guest_next_free_vgpr > host_next_free_vgpr:
+    kernel_metadata_dict[host_kernel][NEXT_FREE_VGPR] = guest_next_free_vgpr
+  
+  # TBD. Review logic here.
+  # # Manipulate host kernel, modify metadata on register usage
+  # kernel_metadata_dict[host_kernel][NEXT_FREE_VGPR] = next_vgpr
+  # kernel_metadata_dict[host_kernel][NEXT_FREE_SGPR] = next_sgpr
   
   # Modify SGPR / VGPR allocation on the fused kernel
   # Modify kernarg size on the fused kernel
