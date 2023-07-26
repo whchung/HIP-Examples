@@ -1,7 +1,9 @@
-#!/usr/bin/python3
+#!/usr/bin/python3.7
 
 import re
 import sys
+
+import dumper
 
 # Configuration
 INPUT_FILE = "vectoradd_hip-hip-amdgcn-amd-amdhsa-gfx900.s"
@@ -61,6 +63,13 @@ KERNEL_CODE_END_REGEX = r'^[ \t]+\.section[ \t]+'
 KERNEL_METADATA_BEGIN_REGEX = MAYBE_EMPTY_SPACES + KERNEL_METADATA_DIRECTIVE + NON_EMPTY_SPACES
 KERNEL_METADATA_END_REGEX = MAYBE_EMPTY_SPACES + KERNEL_METADATA_END_DIRECTIVE
 KERNEL_METADATA_ENTRY_REGEX = MAYBE_EMPTY_SPACES + r'\.(\w+)' + NON_EMPTY_SPACES + r'(\d+)' 
+
+def test_use_dumper():
+  # Test use dumper
+  code_object_filename = dumper.get_code_object("/home/whchung/rccl/build/librccl.so")
+  [descriptor_address, descriptor_length, kernel_address, kernel_length] = dumper.get_symbols(code_object_filename)
+  descriptor_dict = dumper.get_descriptor(code_object_filename, descriptor_address, descriptor_length)
+  print(descriptor_dict)
 
 # Parse input file, retrieve kernel names
 def retrieve_kernel_names(input_stream, output_list):
@@ -411,3 +420,4 @@ for line in kernel_code_dict[HOST_KERNEL]:
 
 for line in kernel_epilogue_list:
   print(line.rstrip())
+
