@@ -46,7 +46,8 @@ test: $(EXECUTABLE)
 clean:
 	@rm -f $(EXECUTABLE)
 	@rm -f $(OBJECTS)
-	@rm -f *.o
+	@rm -f *.o *.co
 	@rm -f $(FILENAME)-*
 	@rm -f $(SOURCES)-*
 	@rm -f fused_manifest.txt fused.s fused.exe
+	@rm -rf __pycache__
