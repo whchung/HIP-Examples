@@ -127,16 +127,38 @@ def deduce_descriptor_from_liveness_analysis(liveness_dict, descriptor_dict):
   #print("CP: ", sgpr_initialized_by_cp)
 
   # TBD. Logic here is quite ad-hoc. Need further improvement.
-  if user_sgpr_cp_count == 12:
+  if user_sgpr_cp_count == 14:
     # private segment buffer is used
     # dispatch ptr is used
     # queue ptr is used
     # kernarg segment ptr is used
+    # dispatch id is used
     # flat scratch init is used
     descriptor_dict["amdhsa_user_sgpr_private_segment_buffer"] = 1
     descriptor_dict["amdhsa_user_sgpr_dispatch_ptr"] = 1
     descriptor_dict["amdhsa_user_sgpr_queue_ptr"] = 1
     descriptor_dict["amdhsa_user_sgpr_kernarg_segment_ptr"] = 1
+    descriptor_dict["amdhsa_user_sgpr_dispatch_id"] = 1
+    descriptor_dict["amdhsa_user_sgpr_flat_scratch_init"] = 1
+
+    descriptor_dict["private_segment_buffer"] = [0, 1, 2, 3]
+    descriptor_dict["dispatch_ptr"] = [4, 5]
+    descriptor_dict["queue_ptr"] = [6, 7]
+    descriptor_dict["kernarg_segment_ptr"] = [8, 9]
+    descriptor_dict["dispatch_id"] = [10, 11]
+    descriptor_dict["flat_scratch_init"] = [12, 13]
+  elif user_sgpr_cp_count == 12:
+    # private segment buffer is used
+    # dispatch ptr is used
+    # queue ptr is used
+    # kernarg segment ptr is used
+    # either dispatch id or flat scratch init is used, HAVE TO GUESS
+    descriptor_dict["amdhsa_user_sgpr_private_segment_buffer"] = 1
+    descriptor_dict["amdhsa_user_sgpr_dispatch_ptr"] = 1
+    descriptor_dict["amdhsa_user_sgpr_queue_ptr"] = 1
+    descriptor_dict["amdhsa_user_sgpr_kernarg_segment_ptr"] = 1
+    # XXX. TBD. Force guess on the flat scratch init for now.
+    descriptor_dict["amdhsa_user_sgpr_dispatch_id"] = 0
     descriptor_dict["amdhsa_user_sgpr_flat_scratch_init"] = 1
 
     descriptor_dict["private_segment_buffer"] = [0, 1, 2, 3]
@@ -153,6 +175,8 @@ def deduce_descriptor_from_liveness_analysis(liveness_dict, descriptor_dict):
     descriptor_dict["amdhsa_user_sgpr_dispatch_ptr"] = 1
     descriptor_dict["amdhsa_user_sgpr_queue_ptr"] = 1
     descriptor_dict["amdhsa_user_sgpr_kernarg_segment_ptr"] = 1
+    descriptor_dict["amdhsa_user_sgpr_dispatch_id"] = 0
+    descriptor_dict["amdhsa_user_sgpr_flat_scratch_init"] = 0
 
     descriptor_dict["private_segment_buffer"] = [0, 1, 2, 3]
     descriptor_dict["dispatch_ptr"] = [4, 5]
@@ -164,9 +188,12 @@ def deduce_descriptor_from_liveness_analysis(liveness_dict, descriptor_dict):
     # kernarg segment ptr is used
     descriptor_dict["amdhsa_user_sgpr_private_segment_buffer"] = 1
     # XXX. TBD. Force guess on the dispatch ptr for now.
+    descriptor_dict["amdhsa_user_sgpr_queue_ptr"] = 0
     descriptor_dict["amdhsa_user_sgpr_dispatch_ptr"] = 1
     #descriptor_dict["amdhsa_user_sgpr_queue_ptr"] = 1
     descriptor_dict["amdhsa_user_sgpr_kernarg_segment_ptr"] = 1
+    descriptor_dict["amdhsa_user_sgpr_dispatch_id"] = 0
+    descriptor_dict["amdhsa_user_sgpr_flat_scratch_init"] = 0
 
     descriptor_dict["private_segment_buffer"] = [0, 1, 2, 3]
     descriptor_dict["dispatch_ptr"] = [4, 5]
@@ -177,13 +204,22 @@ def deduce_descriptor_from_liveness_analysis(liveness_dict, descriptor_dict):
     # private segment buffer is used
     # kernarg segment ptr is used
     descriptor_dict["amdhsa_user_sgpr_private_segment_buffer"] = 1
+    descriptor_dict["amdhsa_user_sgpr_queue_ptr"] = 0
+    descriptor_dict["amdhsa_user_sgpr_dispatch_ptr"] = 0
     descriptor_dict["amdhsa_user_sgpr_kernarg_segment_ptr"] = 1
+    descriptor_dict["amdhsa_user_sgpr_dispatch_id"] = 0
+    descriptor_dict["amdhsa_user_sgpr_flat_scratch_init"] = 0
 
     descriptor_dict["private_segment_buffer"] = [0, 1, 2, 3]
     descriptor_dict["kernarg_segment_ptr"] = [4, 5]
   elif user_sgpr_cp_count == 2:
     # kernarg segment ptr is used
+    descriptor_dict["amdhsa_user_sgpr_private_segment_buffer"] = 0
+    descriptor_dict["amdhsa_user_sgpr_queue_ptr"] = 0
+    descriptor_dict["amdhsa_user_sgpr_dispatch_ptr"] = 0
     descriptor_dict["amdhsa_user_sgpr_kernarg_segment_ptr"] = 1
+    descriptor_dict["amdhsa_user_sgpr_dispatch_id"] = 0
+    descriptor_dict["amdhsa_user_sgpr_flat_scratch_init"] = 0
 
     descriptor_dict["kernarg_segment_ptr"] = [0, 1]
   else:
@@ -197,7 +233,7 @@ def deduce_descriptor_from_liveness_analysis(liveness_dict, descriptor_dict):
   for feature in ["private_segment_buffer", "dispatch_ptr", "queue_ptr", "kernarg_segment_ptr", "flat_scratch_init"]:
     for reg in descriptor_dict[feature]:
       if reg not in sgpr_initialized_by_cp:
-        descriptor_dict[feature] = []
+        del descriptor_dict[feature]
         break
 
   return
