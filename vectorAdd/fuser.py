@@ -4,6 +4,7 @@ import re
 import sys
 
 import dumper
+import liveness
 
 # Configuration
 INPUT_FILE = "vectoradd_hip-hip-amdgcn-amd-amdhsa-gfx900.s"
@@ -34,8 +35,8 @@ PRIVATE_SEGMENT_BUFFER_INDEX = 0
 DISPATCH_PTR_INDEX = 1
 QUEUE_PTR_INDEX = 2
 KERNARG_SEGMENT_PTR_INDEX = 3
-DISPATCH_ID = 4
-FLAT_SCRATCH_INIT = 5
+DISPATCH_ID_INDEX = 4
+FLAT_SCRATCH_INIT_INDEX = 5
 
 NEXT_FREE_SGPR = r'amdhsa_next_free_sgpr'
 NEXT_FREE_VGPR = r'amdhsa_next_free_vgpr'
@@ -49,7 +50,13 @@ DIMENSIONS = [ 'x', 'y', 'z' ]
 
 USER_SGPR_CP_COUNT = r'user_sgpr_cp_count'
 USER_SGPR_ADC_COUNT = r'user_sgpr_adc_count'
+
 KERNARG_SEGMENT_PTR = r'kernarg_segment_ptr'
+PRIVATE_SEGMENT_BUFFER = r'private_segment_buffer'
+DISPATCH_PTR = r'dispatch_ptr'
+QUEUE_PTR = r'queue_ptr'
+FLAT_SCRATCH_INIT = r'flat_scratch_init'
+DISPATCH_ID = r'dispatch_id'
 
 # Regex
 KERNEL_NAME_REGEX = MAYBE_EMPTY_SPACES + \
@@ -169,33 +176,65 @@ def retrieve_sgpr_usage(kernel_name, metadata_dict):
 
 def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kernel, kernel_prologue_list, kernel_epilogue_list, guest_kernel_is_from_binary = False):
 
-  # Guest kernel extract from binary doesn't contain such information. Skip the checks.
-  if guest_kernel_is_from_binary != True:
-    # Validate SGPR usage
-    #
-    # If guest uses, host must also uses:
-    # - DISPATCH_PTR_INDEX = 1
-    # - QUEUE_PTR_INDEX = 2
-    # - KERNARG_SEGMENT_PTR_INDEX = 3
-    # Not important:
-    # - PRIVATE_SEGMENT_BUFFER_INDEX = 0
-    # - DISPATCH_ID = 4
-    # - FLAT_SCRATCH_INIT = 5
-    if kernel_metadata_dict[guest_kernel][USER_SGPR_DIRECTIVES[DISPATCH_PTR_INDEX]] == 1 and \
-       kernel_metadata_dict[host_kernel][USER_SGPR_DIRECTIVES[DISPATCH_PTR_INDEX]] != 1:
-      print("Host doesn't use dispatch ptr while guest uses dispatch ptr!")
-      exit(1)
-    
-    if kernel_metadata_dict[guest_kernel][USER_SGPR_DIRECTIVES[QUEUE_PTR_INDEX]] == 1 and \
-       kernel_metadata_dict[host_kernel][USER_SGPR_DIRECTIVES[QUEUE_PTR_INDEX]] != 1:
-      print("Host doesn't use queue ptr while guest uses queue ptr!")
-      exit(1)
-    
-    if kernel_metadata_dict[guest_kernel][USER_SGPR_DIRECTIVES[KERNARG_SEGMENT_PTR_INDEX]] == 1 and \
-       kernel_metadata_dict[host_kernel][USER_SGPR_DIRECTIVES[KERNARG_SEGMENT_PTR_INDEX]] != 1:
-      print("Host doesn't use kernarg segment ptr while guest uses kernarg segment ptr!")
-      exit(1)
+  # Validate SGPR usage
+  #
+  # If guest uses, host must also uses:
+  # - PRIVATE_SEGMENT_BUFFER_INDEX = 0
+  # - DISPATCH_PTR_INDEX = 1
+  # - QUEUE_PTR_INDEX = 2
+  # - KERNARG_SEGMENT_PTR_INDEX = 3
+  # - DISPATCH_ID = 4
+  # - FLAT_SCRATCH_INIT = 5
+
+  # TBD. Logic here need to be improved further.
+  # Cases:
+  # - Host : F / Guest : F
+  #   - Nothing needs to be done
+  # - Host : T / Guest : F
+  #   - Nothing needs to be done
+  # - Host : F / Guest : T
+  #   - Need context adjust logic before host begins
+  #   - Need context save logic for guest kernel
+  #   - Need context restore logic for guest kernel
+  # - Host : T / Guest : T
+  #   - Need context save logic for guest kernel
+  #   - Need context restore logic for guest kernel
+  if kernel_metadata_dict[guest_kernel][USER_SGPR_DIRECTIVES[PRIVATE_SEGMENT_BUFFER_INDEX]] == 1 and \
+     kernel_metadata_dict[guest_kernel].get(PRIVATE_SEGMENT_BUFFER) is not None and \
+     kernel_metadata_dict[host_kernel][USER_SGPR_DIRECTIVES[PRIVATE_SEGMENT_BUFFER_INDEX]] != 1:
+    #print("Need to emit context save/restore logic for private segment buffer!")
+    pass
   
+  if kernel_metadata_dict[guest_kernel][USER_SGPR_DIRECTIVES[DISPATCH_PTR_INDEX]] == 1 and \
+     kernel_metadata_dict[guest_kernel].get(DISPATCH_PTR) is not None and \
+     kernel_metadata_dict[host_kernel][USER_SGPR_DIRECTIVES[DISPATCH_PTR_INDEX]] != 1:
+    #print("Need to emit context save/restore logic for dispatch ptr!")
+    pass
+  
+  if kernel_metadata_dict[guest_kernel][USER_SGPR_DIRECTIVES[QUEUE_PTR_INDEX]] == 1 and \
+     kernel_metadata_dict[guest_kernel].get(QUEUE_PTR) is not None and \
+     kernel_metadata_dict[host_kernel][USER_SGPR_DIRECTIVES[QUEUE_PTR_INDEX]] != 1:
+    #print("Need to emit context save/restore logic for queue ptr!")
+    pass
+  
+  if kernel_metadata_dict[guest_kernel][USER_SGPR_DIRECTIVES[KERNARG_SEGMENT_PTR_INDEX]] == 1 and \
+     kernel_metadata_dict[guest_kernel].get(KERNARG_SEGMENT_PTR) is not None and \
+     kernel_metadata_dict[host_kernel][USER_SGPR_DIRECTIVES[KERNARG_SEGMENT_PTR_INDEX]] != 1:
+    #print("Need to emit context save/restore logic for kernarg segment ptr!")
+    pass
+  
+  if kernel_metadata_dict[guest_kernel][USER_SGPR_DIRECTIVES[DISPATCH_ID_INDEX]] == 1 and \
+     kernel_metadata_dict[guest_kernel].get(DISPATCH_ID) is not None and \
+     kernel_metadata_dict[host_kernel][USER_SGPR_DIRECTIVES[DISPATCH_ID_INDEX]] != 1:
+    #print("Need to emit context save/restore logic for dispatch id!")
+    pass
+
+  if kernel_metadata_dict[guest_kernel][USER_SGPR_DIRECTIVES[FLAT_SCRATCH_INIT_INDEX]] == 1 and \
+     kernel_metadata_dict[guest_kernel].get(FLAT_SCRATCH_INIT) is not None and \
+     kernel_metadata_dict[host_kernel][USER_SGPR_DIRECTIVES[FLAT_SCRATCH_INIT_INDEX]] != 1:
+    #print("Need to emit context save/restore logic for flat scratch init!")
+    pass
+
   # Retreive kernarg size, compute kernarg offset
   # Kernel signature merge takes place first before this logic could work
   host_kernarg_size = kernel_metadata_dict[host_kernel][KERNARG_SIZE]
@@ -499,8 +538,10 @@ def test_fuse_with_dumper():
   # Obtain guest kernel from dumper
   code_object_filename = dumper.get_code_object(LIBRCCL_PATH)
   [descriptor_address, descriptor_length, kernel_address, kernel_length] = dumper.get_symbol(code_object_filename, RCCL_KERNEL_NAME)
-  kernel_metadata_dict[GUEST_KERNEL] = dumper.get_descriptor(code_object_filename, descriptor_address, descriptor_length)
   kernel_code_dict[GUEST_KERNEL] = dumper.get_isa(code_object_filename, RCCL_KERNEL_NAME)
+  liveness_dict = liveness.liveness_analysis(kernel_code_dict[GUEST_KERNEL])
+
+  kernel_metadata_dict[GUEST_KERNEL] = dumper.get_descriptor(code_object_filename, descriptor_address, descriptor_length, liveness_dict)
 
   fuse_kernel(kernel_code_dict, kernel_metadata_dict, HOST_KERNEL, GUEST_KERNEL, kernel_prologue_list, kernel_epilogue_list, True)
   
