@@ -54,12 +54,17 @@ def get_code_object(library_path):
       code_object_uri = m.group(1)
       break
   
-  # run roc-obj-extract
-  run_external_binary(ROC_OBJ_EXTRACT_PATH, [code_object_uri])
-  
   code_object_filename = os.path.basename(code_object_uri)
   code_object_filename = re.sub(r'[&#]', '-', code_object_filename)
   code_object_filename = re.sub(r'[=]', '', code_object_filename) + ".co"
+
+  if os.path.exists(code_object_filename):
+    pass
+  else:
+    # run roc-obj-extract
+    # this step is very time-consuming
+    run_external_binary(ROC_OBJ_EXTRACT_PATH, [code_object_uri])
+    
   return code_object_filename
 
 def get_symbol(code_object_filename, symbol_name):
