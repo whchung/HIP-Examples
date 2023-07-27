@@ -248,6 +248,9 @@ def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kerne
       next_vgpr += 1
       user_sgpr_adc_saved += 1
   
+  kernel_metadata_dict[host_kernel][NEXT_FREE_SGPR] = next_sgpr
+  kernel_metadata_dict[host_kernel][NEXT_FREE_VGPR] = next_vgpr
+
   # Detect if SGPR for kernarg segment pointer has been modified in the host kernel
   kernarg_segment_ptr_sgpr_modified = False
   for line in kernel_code_dict[host_kernel]:
@@ -297,11 +300,6 @@ def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kerne
   if guest_next_free_vgpr > host_next_free_vgpr:
     kernel_metadata_dict[host_kernel][NEXT_FREE_VGPR] = guest_next_free_vgpr
   
-  # TBD. Review logic here.
-  # # Manipulate host kernel, modify metadata on register usage
-  # kernel_metadata_dict[host_kernel][NEXT_FREE_VGPR] = next_vgpr
-  # kernel_metadata_dict[host_kernel][NEXT_FREE_SGPR] = next_sgpr
-  
   # Modify SGPR / VGPR allocation on the fused kernel
   # Modify kernarg size on the fused kernel
   # Modify LDS size on the fused kernel
@@ -316,10 +314,10 @@ def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kerne
       if m is not None:
         if m.group(1) == NEXT_FREE_VGPR:
           done_next_free_vgpr = True
-          modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(next_vgpr))
+          modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(kernel_metadata_dict[host_kernel][NEXT_FREE_VGPR]))
         elif m.group(1) == NEXT_FREE_SGPR:
           done_next_free_sgpr = True
-          modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(next_sgpr))
+          modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(kernel_metadata_dict[host_kernel][NEXT_FREE_SGPR]))
         elif m.group(1) == KERNARG_SIZE:
           done_kernarg_size = True
           modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(host_kernarg_size + guest_kernarg_size))

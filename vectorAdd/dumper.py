@@ -126,15 +126,21 @@ def get_descriptor(code_object_filename, descriptor_address, descriptor_length):
 
   # TBD. See if registers for kernarg segment pointers are computable.
   # Hard-code here for now.
-  descriptor_dict["kernarg_segment_ptr"] = [4, 5]
+  descriptor_dict["kernarg_segment_ptr"] = [8, 9]
   
   # Obtain information from RSRC1
-  next_free_sgpr = fetch_subbyte_number(descriptor[48:], 6, 4) * 8 
-  next_free_vgpr = fetch_subbyte_number(descriptor[48:], 0, 6) * 8
+  # TBD. Review computation here.
+  next_free_sgpr = fetch_subbyte_number(descriptor[48:], 6, 4)
+  next_free_sgpr = ((next_free_sgpr - 1) // 2 + 1) * 16
+  if next_free_sgpr > 102:
+    next_free_sgpr = 102
+  next_free_vgpr = fetch_subbyte_number(descriptor[48:], 0, 6)
+  print("VGPR: " + str(next_free_vgpr))
+  next_free_vgpr = next_free_vgpr * 8
   descriptor_dict["amdhsa_next_free_sgpr"] = next_free_sgpr
   descriptor_dict["amdhsa_next_free_vgpr"] = next_free_vgpr
-  #print("SGPR: " + str(next_free_sgpr))
-  #print("VGPR: " + str(next_free_vgpr))
+  print("SGPR: " + str(next_free_sgpr))
+  print("VGPR: " + str(next_free_vgpr))
   
   # Obtain information from RSRC2
   #print("PRIVATE SEGMENT: " + str(fetch_subbyte_number(descriptor[52:], 0, 1)))
@@ -181,12 +187,12 @@ def main():
   code_object_filename = get_code_object(LIBRCCL_PATH)
   [descriptor_address, descriptor_length, kernel_address, kernel_length] = get_symbol(code_object_filename, RCCL_KERNEL_NAME)
 
-  #descriptor_dict = get_descriptor(code_object_filename, descriptor_address, descriptor_length)
-  #print(descriptor_dict)
+  descriptor_dict = get_descriptor(code_object_filename, descriptor_address, descriptor_length)
 
-  isa = get_isa(code_object_filename, RCCL_KERNEL_NAME)
-  for line in isa:
-    print(line)
+  #isa = get_isa(code_object_filename, RCCL_KERNEL_NAME)
+  #for line in isa:
+  #  print(line)
+  print(descriptor_dict)
 
 if __name__ == "__main__":
   main()
