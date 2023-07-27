@@ -307,7 +307,7 @@ def get_descriptor(code_object_filename, descriptor_address, descriptor_length, 
     descriptor_dict["kernarg_segment_ptr"] = [4, 5]
   
     # Obtain information from RSRC1
-    next_free_sgpr = fetch_subbyte_number(descriptor[48:], 6, 4) * 16
+    next_free_sgpr = fetch_subbyte_number(descriptor[48:], 6, 4) * 8
     next_free_vgpr = fetch_subbyte_number(descriptor[48:], 0, 6) * 8
     descriptor_dict["amdhsa_next_free_sgpr"] = next_free_sgpr
     descriptor_dict["amdhsa_next_free_vgpr"] = next_free_vgpr
@@ -320,6 +320,12 @@ def get_isa(code_object_filename, symbol_name):
   # disassemble ISA
   isa = run_external_binary(LLVM_OBJDUMP_PATH, ["--disassemble-symbols=" + symbol_name, code_object_filename])
   isa = isa.splitlines()[5:]
+
+  # trim the last line if necessary
+  m = re.search(r'^[ \t]+\.\.\.', isa[-1])
+  if m is not None:
+    # trim the last line
+    isa = isa[:-1]
   return isa
 
 def main():
