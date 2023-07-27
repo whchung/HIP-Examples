@@ -4,6 +4,8 @@ import os
 import re
 import subprocess
 
+import liveness
+
 ROC_OBJ_LS_PATH = "/opt/rocm/hip/bin/roc-obj-ls"
 ROC_OBJ_EXTRACT_PATH = "/opt/rocm/hip/bin/roc-obj-extract"
 LLVM_OBJDUMP_PATH = "/opt/rocm/llvm/bin/llvm-objdump"
@@ -189,10 +191,14 @@ def main():
 
   descriptor_dict = get_descriptor(code_object_filename, descriptor_address, descriptor_length)
 
-  #isa = get_isa(code_object_filename, RCCL_KERNEL_NAME)
+  isa = get_isa(code_object_filename, RCCL_KERNEL_NAME)
   #for line in isa:
   #  print(line)
   print(descriptor_dict)
+
+  liveness_dict = liveness.liveness_analysis(isa)
+  for sgpr in range(16):
+    print("SGPR" + str(sgpr) + ": ", liveness_dict['s' + str(sgpr)])
 
 if __name__ == "__main__":
   main()
