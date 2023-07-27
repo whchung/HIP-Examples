@@ -18,6 +18,8 @@ def register_key_func(word):
   return register_file_number + register_number
 
 def liveness_analysis(isa):
+  if type(isa) != type([]):
+    isa = isa.splitlines()
   # entries is a 4-tuple:
   # 0: earliest input
   # 1: latest input
@@ -25,7 +27,7 @@ def liveness_analysis(isa):
   # 3: latest output
   liveness_dict = {}
   line_number = 0
-  for line in isa.splitlines():
+  for line in isa:
     line = line[:line.find('//')].rstrip()
     #print(str(line_number) + ":\t" + line)
   
@@ -78,13 +80,12 @@ def liveness_analysis(isa):
           liveness_dict[register][3] = line_number
   
     line_number = line_number + 1
-  return liveness_dict
+  return dict(sorted(liveness_dict.items(), key = register_key_func))
 
 def main():
   input_file = open("rccl.s", "r")
   liveness_dict = liveness_analysis(input_file.read())
-  
-  liveness_dict = dict(sorted(liveness_dict.items(), key = register_key_func))
+
   for sgpr in range(16):
     print("SGPR" + str(sgpr) + ": ", liveness_dict['s' + str(sgpr)])
 
