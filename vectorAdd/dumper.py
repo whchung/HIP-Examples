@@ -236,10 +236,11 @@ def deduce_descriptor_from_liveness_analysis(liveness_dict, descriptor_dict):
   # as some register might be initialized by CP but not used.
 
   for feature in ["private_segment_buffer", "dispatch_ptr", "queue_ptr", "kernarg_segment_ptr", "flat_scratch_init"]:
-    for reg in descriptor_dict[feature]:
-      if reg not in sgpr_initialized_by_cp:
-        del descriptor_dict[feature]
-        break
+    if feature in descriptor_dict:
+      for reg in descriptor_dict[feature]:
+        if reg not in sgpr_initialized_by_cp:
+          del descriptor_dict[feature]
+          break
 
   return
 
