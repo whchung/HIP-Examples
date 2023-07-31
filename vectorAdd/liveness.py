@@ -250,9 +250,11 @@ def deduce_descriptor(liveness_dict, descriptor_dict):
 
   return
 
+INPUT_FILE = "rccl.s"
 def main():
-  input_file = open("rccl.s", "r")
-  liveness_dict = liveness_analysis(input_file.read())
+  input_file = open(INPUT_FILE, "r")
+  kernel_source = input_file.read()
+  liveness_dict = liveness_analysis(kernel_source)
 
   [max_sgpr, max_vgpr, max_agpr] = get_register_usage(liveness_dict)
   print("SGPR: " + str(max_sgpr))
