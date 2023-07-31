@@ -534,6 +534,11 @@ def test_fuse_with_dumper():
   # Retrieve kernel SGPR usage
   retrieve_sgpr_usage(HOST_KERNEL, kernel_metadata_dict)
 
+  # Liveness analysis of host kernel
+  l_host = liveness.liveness_analysis(kernel_code_dict[HOST_KERNEL])
+  # Update kernel metadata for host kernel after liveness analysis
+  kernel_metadata_dict[HOST_KERNEL] = liveness.deduce_descriptor(l_host, kernel_metadata_dict[HOST_KERNEL])
+
   # Obtain guest kernel from dumper
   code_object_filename = dumper.get_code_object(LIBRCCL_PATH)
   [descriptor_address, descriptor_length, kernel_address, kernel_length] = dumper.get_symbol(code_object_filename, RCCL_KERNEL_NAME)
@@ -542,8 +547,32 @@ def test_fuse_with_dumper():
 
   kernel_metadata_dict[GUEST_KERNEL] = dumper.get_descriptor(code_object_filename, descriptor_address, descriptor_length, liveness_dict)
 
-  fuse_kernel(kernel_code_dict, kernel_metadata_dict, HOST_KERNEL, GUEST_KERNEL, kernel_prologue_list, kernel_epilogue_list, True)
-  
+  abi_feature_analysis(kernel_metadata_dict)
+  #fuse_kernel(kernel_code_dict, kernel_metadata_dict, HOST_KERNEL, GUEST_KERNEL, kernel_prologue_list, kernel_epilogue_list, True)
+
+def abi_feature_analysis(kernel_metadata_dict):
+  #print(kernel_metadata_dict[HOST_KERNEL])
+  #print(kernel_metadata_dict[GUEST_KERNEL])
+  for feature in ["private_segment_buffer", "dispatch_ptr", "queue_ptr", "kernarg_segment_ptr", "flat_scratch_init"]:
+    print("ROCm ABI feature: " + feature)
+    if kernel_metadata_dict[HOST_KERNEL]["amdhsa_user_sgpr_" + feature] == 1:
+      print("\tHost declared")
+    if kernel_metadata_dict[GUEST_KERNEL]["amdhsa_user_sgpr_" + feature] == 1:
+      print("\tGuest declared")
+    host_registers = kernel_metadata_dict[HOST_KERNEL].get(feature)
+    if host_registers is not None:
+      print("\tHost used: ", host_registers)
+    guest_registers = kernel_metadata_dict[GUEST_KERNEL].get(feature)
+    if guest_registers is not None:
+      print("\tGuest used: ", guest_registers)
+    host_overriden = kernel_metadata_dict[HOST_KERNEL].get(feature + "_overriden")
+    if host_overriden is not None and host_overriden == 1:
+      print("\tHost overriden")
+    guest_overriden = kernel_metadata_dict[GUEST_KERNEL].get(feature + "_overriden")
+    if guest_overriden is not None and guest_overriden == 1:
+      print("\tGuest overriden")
+    print("\n")
+
 if __name__ == "__main__":
     main()
     #test_use_dumper()
