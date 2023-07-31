@@ -123,7 +123,7 @@ def deduce_descriptor(liveness_dict, descriptor_dict):
   sgpr_initialized_by_adc = []
   for sgpr in range(user_sgpr_cp_count, user_sgpr_cp_count + user_sgpr_adc_count):
     l = liveness_dict.get('s' + str(sgpr))
-    if l is not None and (l[0] < l[2]):
+    if l is not None and (l[0] > 0) and (l[2] == -1 or l[0] < l[2]):
       sgpr_initialized_by_adc.append(sgpr)
   descriptor_dict["user_sgpr_adc_count"] = len(sgpr_initialized_by_adc)
   #print("ADC: ", sgpr_initialized_by_adc)
@@ -132,7 +132,7 @@ def deduce_descriptor(liveness_dict, descriptor_dict):
   sgpr_initialized_by_cp = []
   for sgpr in range(user_sgpr_cp_count):
     l = liveness_dict.get('s' + str(sgpr))
-    if l is not None and (l[0] < l[2]):
+    if l is not None and (l[0] > 0) and (l[2] == -1 or l[0] < l[2]):
       sgpr_initialized_by_cp.append(sgpr)
 
   #print("CP: ", sgpr_initialized_by_cp)
@@ -241,6 +241,7 @@ def deduce_descriptor(liveness_dict, descriptor_dict):
   # len(sgpr_initialized_by_cp) might be less then user_sgpr_cp_count
   # as some register might be initialized by CP but not used.
 
+  # Log registers from features that are actually used
   for feature in ["private_segment_buffer", "dispatch_ptr", "queue_ptr", "kernarg_segment_ptr", "flat_scratch_init"]:
     if feature in descriptor_dict:
       for reg in descriptor_dict[feature]:
@@ -248,7 +249,20 @@ def deduce_descriptor(liveness_dict, descriptor_dict):
           del descriptor_dict[feature]
           break
 
-  return
+  # Log registers from features that are overriden
+  for feature in ["private_segment_buffer", "dispatch_ptr", "queue_ptr", "kernarg_segment_ptr", "flat_scratch_init"]:
+    if feature in descriptor_dict:
+      for reg in descriptor_dict[feature]:
+        l = liveness_dict['s' + str(reg)]
+        if l[0] < l[2]:
+          descriptor_dict[feature + "_overriden"] = 1
+        elif l[2] == -1:
+          descriptor_dict[feature + "_overriden"] = 0
+        else:
+          print("Unknown situtaion encountered!")
+        break
+
+  return descriptor_dict
 
 INPUT_FILE = "rccl.s"
 def main():
