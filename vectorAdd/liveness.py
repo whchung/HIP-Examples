@@ -27,7 +27,6 @@ def liveness_analysis(isa):
   # 3: latest output
   liveness_dict = {}
   line_number = 0
-  max_line_number = len(isa)
   for line in isa:
     line = line[:line.find('//')].rstrip()
     #print(str(line_number) + ":\t" + line)
@@ -62,7 +61,7 @@ def liveness_analysis(isa):
   
     for register in input_registers:
       if liveness_dict.get(register) is None:
-        liveness_dict[register] = [ line_number, line_number, max_line_number, max_line_number ]
+        liveness_dict[register] = [ line_number, line_number, -1, -1 ]
       else:
         if liveness_dict[register][0] == -1 and liveness_dict[register][1] == -1:
           liveness_dict[register][0] = line_number
@@ -74,7 +73,7 @@ def liveness_analysis(isa):
       if liveness_dict.get(register) is None:
         liveness_dict[register] = [ -1, -1, line_number, line_number ]
       else:
-        if liveness_dict[register][2] == max_line_number and liveness_dict[register][3] == max_line_number:
+        if liveness_dict[register][2] == -1 and liveness_dict[register][3] == -1:
           liveness_dict[register][2] = line_number
           liveness_dict[register][3] = line_number
         else:
@@ -260,14 +259,25 @@ def main():
   print("VGPR: " + str(max_vgpr))
   print("AGPR: " + str(max_agpr))
 
-  for sgpr in range(max_sgpr):
+  for sgpr in range(12):
     liveness = liveness_dict.get('s' + str(sgpr))
-    if liveness is not None and (liveness[0] > 0) and (liveness[0] < liveness[2]):
-      print("SGPR" + str(sgpr) + "(*): ", liveness_dict['s' + str(sgpr)])
-  for vgpr in range(max_vgpr):
+    if liveness is not None and (liveness[0] > 0) and (liveness[2] == -1 or liveness[0] < liveness[2]):
+      if liveness[2] == -1:
+        # declared + used
+        print("SGPR" + str(sgpr) + "(*): ", liveness_dict['s' + str(sgpr)])
+      elif liveness[0] < liveness[2]:
+        # declared + used + overriden
+        print("SGPR" + str(sgpr) + "(=): ", liveness_dict['s' + str(sgpr)])
+
+  for vgpr in range(3):
     liveness = liveness_dict.get('v' + str(vgpr))
-    if liveness is not None and (liveness[0] > 0) and (liveness[0] < liveness[2]):
-      print("VGPR" + str(vgpr) + ":(*) ", liveness_dict['v' + str(vgpr)])
+    if liveness is not None and (liveness[0] > 0) and (liveness[2] == -1 or liveness[0] < liveness[2]):
+      if liveness[2] == -1:
+        # declared + used
+        print("VGPR" + str(vgpr) + ":(*) ", liveness_dict['v' + str(vgpr)])
+      elif liveness[0] < liveness[2]:
+        # declared + used + overriden
+        print("VGPR" + str(vgpr) + ":(=) ", liveness_dict['v' + str(vgpr)])
 
 if __name__ == '__main__':
   main()
