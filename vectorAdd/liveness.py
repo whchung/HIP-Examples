@@ -112,11 +112,11 @@ def main():
 
   for sgpr in range(max_sgpr):
     liveness = liveness_dict.get('s' + str(sgpr))
-    if liveness is not None and (liveness[0] < liveness[2]):
+    if liveness is not None and (liveness[0] > 0) and (liveness[0] < liveness[2]):
       print("SGPR" + str(sgpr) + "(*): ", liveness_dict['s' + str(sgpr)])
   for vgpr in range(max_vgpr):
     liveness = liveness_dict.get('v' + str(vgpr))
-    if liveness is not None and (liveness[0] < liveness[2]):
+    if liveness is not None and (liveness[0] > 0) and (liveness[0] < liveness[2]):
       print("VGPR" + str(vgpr) + ":(*) ", liveness_dict['v' + str(vgpr)])
 
 if __name__ == '__main__':
