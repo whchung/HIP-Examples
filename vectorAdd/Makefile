@@ -31,15 +31,15 @@ fuse: $(EXECUTABLE) test
 	./fuser.py $(FILENAME)-hip-amdgcn-amd-amdhsa-$(GFXARCH).s manifest > fused_manifest.txt
 	./fuser.py $(FILENAME)-hip-amdgcn-amd-amdhsa-$(GFXARCH).s > fused.s
 	./assemble.sh
-	AMD_KERNEL_FUSION=1 AMD_KERNEL_FUSION_HOST=`head -1 fused_manifest.txt` AMD_KERNEL_FUSION_GUEST=`tail -1 fused_manifest.txt` LD_PRELOAD=$(HIP_LIBRARY) ./fused.exe
-	@AMD_KERNEL_FUSION=1 AMD_LOG_LEVEL=4 AMD_KERNEL_FUSION_HOST=`head -1 fused_manifest.txt` AMD_KERNEL_FUSION_GUEST=`tail -1 fused_manifest.txt` LD_PRELOAD=$(HIP_LIBRARY) ./fused.exe 1>/dev/null 2>run.log
+	AMD_KERNEL_FUSION=1 AMD_KERNEL_FUSION_HOST=`head -1 fused_manifest.txt` AMD_KERNEL_FUSION_GUEST=`tail -1 fused_manifest.txt` ROC_USE_FGS_KERNARG=0 LD_PRELOAD=$(HIP_LIBRARY) ./fused.exe
+	@AMD_KERNEL_FUSION=1 AMD_LOG_LEVEL=4 AMD_KERNEL_FUSION_HOST=`head -1 fused_manifest.txt` AMD_KERNEL_FUSION_GUEST=`tail -1 fused_manifest.txt` ROC_USE_FGS_KERNARG=0 LD_PRELOAD=$(HIP_LIBRARY) ./fused.exe 1>/dev/null 2>run.log
 	@echo "Number of AQL packets submitted: `grep kernel_obj run.log | wc -l`"
 	@rm -f run.log
 
 test: $(EXECUTABLE)
 	@echo "\n==== Back-to-back Kernels  ====\n"
-	LD_PRELOAD=$(HIP_LIBRARY) $(EXECUTABLE)
-	@AMD_LOG_LEVEL=4 LD_PRELOAD=$(HIP_LIBRARY) $(EXECUTABLE) 1>/dev/null 2>run.log
+	ROC_USE_FGS_KERNARG=0 LD_PRELOAD=$(HIP_LIBRARY) $(EXECUTABLE)
+	@AMD_LOG_LEVEL=4 ROC_USE_FGS_KERNARG=0 LD_PRELOAD=$(HIP_LIBRARY) $(EXECUTABLE) 1>/dev/null 2>run.log
 	@echo "Number of AQL packets submitted: `grep kernel_obj run.log | wc -l`"
 	@rm -f run.log
 
