@@ -105,12 +105,7 @@ LAST_INPUT = 1
 FIRST_OUTPUT = 2
 LAST_OUTPUT = 3
 def deduce_descriptor(liveness_dict, descriptor_dict):
-  # Understand the number of SGPRs set by CP from RSRC2
-  user_sgpr_cp_count = descriptor_dict["user_sgpr_cp_count"]
-
-  # Understand the number of SGPRs set by ADC from RSRC2
-  user_sgpr_adc_count = descriptor_dict["amdhsa_system_sgpr_workgroup_id_x"] + descriptor_dict["amdhsa_system_sgpr_workgroup_id_y"] + descriptor_dict["amdhsa_system_sgpr_workgroup_id_z"]
-
+  # Obtain register usage information
   [max_sgpr, max_vgpr, max_agpr] = get_register_usage(liveness_dict)
 
   # Set SGPR, VGPR, AGPR information
@@ -119,14 +114,8 @@ def deduce_descriptor(liveness_dict, descriptor_dict):
   if max_agpr != 0:
     descriptor_dict["amdhsa_accum_offset"] = max_agpr
 
-  # Identify each SGPR be initialized by ADC
-  sgpr_initialized_by_adc = []
-  for sgpr in range(user_sgpr_cp_count, user_sgpr_cp_count + user_sgpr_adc_count):
-    l = liveness_dict.get('s' + str(sgpr))
-    if l is not None and (l[0] > 0) and (l[2] == -1 or l[0] < l[2]):
-      sgpr_initialized_by_adc.append(sgpr)
-  descriptor_dict["user_sgpr_adc_count"] = len(sgpr_initialized_by_adc)
-  #print("ADC: ", sgpr_initialized_by_adc)
+  # Understand the number of SGPRs set by CP from RSRC2
+  user_sgpr_cp_count = descriptor_dict["user_sgpr_cp_count"]
 
   # Identify each SGPR be initialized by CP
   sgpr_initialized_by_cp = []
@@ -251,6 +240,39 @@ def deduce_descriptor(liveness_dict, descriptor_dict):
 
   # Log registers from features that are overriden
   for feature in ["private_segment_buffer", "dispatch_ptr", "queue_ptr", "kernarg_segment_ptr", "flat_scratch_init"]:
+    if feature in descriptor_dict:
+      for reg in descriptor_dict[feature]:
+        l = liveness_dict['s' + str(reg)]
+        if l[0] < l[2]:
+          descriptor_dict[feature + "_overriden"] = 1
+        elif l[2] == -1:
+          descriptor_dict[feature + "_overriden"] = 0
+        else:
+          print("Unknown situtaion encountered!")
+        break
+
+  # Understand the number of SGPRs set by ADC from RSRC2
+  user_sgpr_adc_count = descriptor_dict["amdhsa_system_sgpr_workgroup_id_x"] + descriptor_dict["amdhsa_system_sgpr_workgroup_id_y"] + descriptor_dict["amdhsa_system_sgpr_workgroup_id_z"]
+
+  descriptor_dict["user_sgpr_adc_count"] = user_sgpr_adc_count
+  #print("ADC: ", sgpr_initialized_by_adc)
+
+  # Identify each SGPR be initialized by ADC
+  sgpr_initialized_by_adc = []
+  for index in range(user_sgpr_adc_count):
+    sgpr = user_sgpr_cp_count + index
+    l = liveness_dict.get('s' + str(sgpr))
+    if l is not None and (l[0] > 0) and (l[2] == -1 or l[0] < l[2]):
+      sgpr_initialized_by_adc.append(sgpr)
+      if index == 0:
+        descriptor_dict["workgroup_id_x"] = [sgpr]
+      elif index == 1:
+        descriptor_dict["workgroup_id_y"] = [sgpr]
+      elif index == 2:
+        descriptor_dict["workgroup_id_z"] = [sgpr]
+
+  # Log registers from features that are overriden
+  for feature in ["workgroup_id_x", "workgroup_id_y", "workgroup_id_z"]:
     if feature in descriptor_dict:
       for reg in descriptor_dict[feature]:
         l = liveness_dict['s' + str(reg)]
