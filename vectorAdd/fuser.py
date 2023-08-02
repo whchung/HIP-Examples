@@ -555,25 +555,91 @@ def test_fuse_with_dumper():
 def abi_feature_analysis(kernel_metadata_dict):
   #print(kernel_metadata_dict[HOST_KERNEL])
   #print(kernel_metadata_dict[GUEST_KERNEL])
+
+  metadata_modified_needed = True
   for feature in ["private_segment_buffer", "dispatch_ptr", "queue_ptr", "kernarg_segment_ptr", "flat_scratch_init"]:
+    host_declared = False
+    guest_declared = False
     print("ROCm ABI feature: " + feature)
     if kernel_metadata_dict[HOST_KERNEL]["amdhsa_user_sgpr_" + feature] == 1:
       print("\tHost declared")
+      host_declared = True
     if kernel_metadata_dict[GUEST_KERNEL]["amdhsa_user_sgpr_" + feature] == 1:
       print("\tGuest declared")
+      guest_declared = True
+
     host_registers = kernel_metadata_dict[HOST_KERNEL].get(feature)
+    host_used = False
     if host_registers is not None:
       print("\tHost used: ", host_registers)
+      host_used = True
     guest_registers = kernel_metadata_dict[GUEST_KERNEL].get(feature)
+    guest_used = False
     if guest_registers is not None:
       print("\tGuest used: ", guest_registers)
+      guest_used = True
+
     host_overriden = kernel_metadata_dict[HOST_KERNEL].get(feature + "_overriden")
     if host_overriden is not None and host_overriden == 1:
       print("\tHost overriden")
+    else:
+      host_overriden = False
     guest_overriden = kernel_metadata_dict[GUEST_KERNEL].get(feature + "_overriden")
     if guest_overriden is not None and guest_overriden == 1:
       print("\tGuest overriden")
-    print("\n")
+    else:
+      host_overriden = False
+
+    # Decide if host metadata need to be modified
+    if host_declared == False and guest_declared == True:
+      print("\tNeed to modify host metadata")
+      metadata_modified_needed = True
+
+    # Decide if context adjust logic need to be emitted
+    if host_used == True and metadata_modified_needed == True:
+      print("\tNeed context adjust logic before host kernel")
+
+  for feature in ["workgroup_id_x", "workgroup_id_y", "workgroup_id_z"]:
+    host_declared = False
+    guest_declared = False
+    print("ROCm ABI feature: " + feature)
+    if kernel_metadata_dict[HOST_KERNEL]["amdhsa_system_sgpr_" + feature] == 1:
+      print("\tHost declared")
+      host_declared = True
+    if kernel_metadata_dict[GUEST_KERNEL]["amdhsa_system_sgpr_" + feature] == 1:
+      print("\tGuest declared")
+      guest_declared = True
+
+    host_registers = kernel_metadata_dict[HOST_KERNEL].get(feature)
+    host_used = False
+    if host_registers is not None:
+      print("\tHost used: ", host_registers)
+      host_used = True
+    guest_registers = kernel_metadata_dict[GUEST_KERNEL].get(feature)
+    guest_used = False
+    if guest_registers is not None:
+      print("\tGuest used: ", guest_registers)
+      guest_used = True
+
+    host_overriden = kernel_metadata_dict[HOST_KERNEL].get(feature + "_overriden")
+    if host_overriden is not None and host_overriden == 1:
+      print("\tHost overriden")
+    else:
+      host_overriden = False
+    guest_overriden = kernel_metadata_dict[GUEST_KERNEL].get(feature + "_overriden")
+    if guest_overriden is not None and guest_overriden == 1:
+      print("\tGuest overriden")
+    else:
+      host_overriden = False
+
+    # Decide if host metadata need to be modified
+    if host_declared == False and guest_declared == True:
+      print("\tNeed to modify host metadata")
+      metadata_modified_needed = True
+
+    # Decide if context adjust logic need to be emitted
+    if host_used == True and metadata_modified_needed == True:
+      print("\tNeed context adjust logic before host kernel")
 
 if __name__ == "__main__":
     main()
