@@ -387,8 +387,10 @@ def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kerne
   
   # TBD: global sync logic between host kernel and guest kernel
   
+  context_adjust_logic = abi_feature_analysis(kernel_metadata_dict)
+
   # Start fusion
-  kernel_code_dict[host_kernel] = context_save_logic + kernel_code_dict[host_kernel] + context_restore_logic + kernel_code_dict[guest_kernel]
+  kernel_code_dict[host_kernel] = context_adjust_logic + context_save_logic + kernel_code_dict[host_kernel] + context_restore_logic + kernel_code_dict[guest_kernel]
   
   for line in kernel_prologue_list:
     print(line.rstrip())
@@ -547,97 +549,73 @@ def test_fuse_with_dumper():
 
   kernel_metadata_dict[GUEST_KERNEL] = dumper.get_descriptor(code_object_filename, descriptor_address, descriptor_length, liveness_dict)
 
-  abi_feature_analysis(kernel_metadata_dict)
-  #fuse_kernel(kernel_code_dict, kernel_metadata_dict, HOST_KERNEL, GUEST_KERNEL, kernel_prologue_list, kernel_epilogue_list, True)
+  #abi_feature_analysis(kernel_metadata_dict)
+  fuse_kernel(kernel_code_dict, kernel_metadata_dict, HOST_KERNEL, GUEST_KERNEL, kernel_prologue_list, kernel_epilogue_list, True)
 
 def abi_feature_analysis(kernel_metadata_dict):
   #print(kernel_metadata_dict[HOST_KERNEL])
   #print(kernel_metadata_dict[GUEST_KERNEL])
 
-  metadata_modified_needed = True
-  for feature in ["private_segment_buffer", "dispatch_ptr", "queue_ptr", "kernarg_segment_ptr", "flat_scratch_init"]:
+  context_adjust_logic = []
+  context_adjust_logic.append("; adjust context")
+
+  metadata_modified_needed = False
+  for [feature, prefix] in [("private_segment_buffer", "amdhsa_user_sgpr_"), \
+                            ("dispatch_ptr", "amdhsa_user_sgpr_"), \
+                            ("queue_ptr", "amdhsa_user_sgpr_"), \
+                            ("kernarg_segment_ptr", "amdhsa_user_sgpr_"), \
+                            ("flat_scratch_init", "amdhsa_user_sgpr_"), \
+                            ("workgroup_id_x", "amdhsa_system_sgpr_"), \
+                            ("workgroup_id_y", "amdhsa_system_sgpr_"), \
+                            ("workgroup_id_z", "amdhsa_system_sgpr_")]:
     host_declared = False
     guest_declared = False
-    print("ROCm ABI feature: " + feature)
-    if kernel_metadata_dict[HOST_KERNEL]["amdhsa_user_sgpr_" + feature] == 1:
-      print("\tHost declared")
+    #print("ROCm ABI feature: " + feature)
+    if kernel_metadata_dict[HOST_KERNEL][prefix + feature] == 1:
+      #print("\tHost declared")
       host_declared = True
-    if kernel_metadata_dict[GUEST_KERNEL]["amdhsa_user_sgpr_" + feature] == 1:
-      print("\tGuest declared")
+    if kernel_metadata_dict[GUEST_KERNEL][prefix + feature] == 1:
+      #print("\tGuest declared")
       guest_declared = True
 
     host_registers = kernel_metadata_dict[HOST_KERNEL].get(feature)
     host_used = False
     if host_registers is not None:
-      print("\tHost used: ", host_registers)
+      #print("\tHost used: ", host_registers)
       host_used = True
     guest_registers = kernel_metadata_dict[GUEST_KERNEL].get(feature)
     guest_used = False
     if guest_registers is not None:
-      print("\tGuest used: ", guest_registers)
+      #print("\tGuest used: ", guest_registers)
       guest_used = True
 
     host_overriden = kernel_metadata_dict[HOST_KERNEL].get(feature + "_overriden")
     if host_overriden is not None and host_overriden == 1:
-      print("\tHost overriden")
+      #print("\tHost overriden")
+      pass
     else:
       host_overriden = False
     guest_overriden = kernel_metadata_dict[GUEST_KERNEL].get(feature + "_overriden")
     if guest_overriden is not None and guest_overriden == 1:
-      print("\tGuest overriden")
+      #print("\tGuest overriden")
+      pass
     else:
       host_overriden = False
 
     # Decide if host metadata need to be modified
     if host_declared == False and guest_declared == True:
-      print("\tNeed to modify host metadata")
+      #print("\tNeed to modify host metadata")
       metadata_modified_needed = True
 
     # Decide if context adjust logic need to be emitted
     if host_used == True and metadata_modified_needed == True:
-      print("\tNeed context adjust logic before host kernel")
+      #print("\tNeed context adjust logic before host kernel")
+      for [host_reg, guest_reg] in zip(host_registers, guest_registers):
+        context_adjust_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(host_reg) + ', ' + 's' + str(guest_reg))
 
-  for feature in ["workgroup_id_x", "workgroup_id_y", "workgroup_id_z"]:
-    host_declared = False
-    guest_declared = False
-    print("ROCm ABI feature: " + feature)
-    if kernel_metadata_dict[HOST_KERNEL]["amdhsa_system_sgpr_" + feature] == 1:
-      print("\tHost declared")
-      host_declared = True
-    if kernel_metadata_dict[GUEST_KERNEL]["amdhsa_system_sgpr_" + feature] == 1:
-      print("\tGuest declared")
-      guest_declared = True
-
-    host_registers = kernel_metadata_dict[HOST_KERNEL].get(feature)
-    host_used = False
-    if host_registers is not None:
-      print("\tHost used: ", host_registers)
-      host_used = True
-    guest_registers = kernel_metadata_dict[GUEST_KERNEL].get(feature)
-    guest_used = False
-    if guest_registers is not None:
-      print("\tGuest used: ", guest_registers)
-      guest_used = True
-
-    host_overriden = kernel_metadata_dict[HOST_KERNEL].get(feature + "_overriden")
-    if host_overriden is not None and host_overriden == 1:
-      print("\tHost overriden")
-    else:
-      host_overriden = False
-    guest_overriden = kernel_metadata_dict[GUEST_KERNEL].get(feature + "_overriden")
-    if guest_overriden is not None and guest_overriden == 1:
-      print("\tGuest overriden")
-    else:
-      host_overriden = False
-
-    # Decide if host metadata need to be modified
-    if host_declared == False and guest_declared == True:
-      print("\tNeed to modify host metadata")
-      metadata_modified_needed = True
-
-    # Decide if context adjust logic need to be emitted
-    if host_used == True and metadata_modified_needed == True:
-      print("\tNeed context adjust logic before host kernel")
+  #for line in context_adjust_logic:
+  #  print(line)
+  return context_adjust_logic
 
 if __name__ == "__main__":
     main()
