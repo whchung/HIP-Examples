@@ -177,13 +177,13 @@ def retrieve_sgpr_usage(kernel_name, metadata_dict):
 def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kernel, kernel_prologue_list, kernel_epilogue_list, guest_kernel_is_from_binary = False):
 
   # Produce context adjust logic
-  context_adjust_logic = abi_feature_analysis(kernel_metadata_dict)
+  context_adjust_logic = emit_context_adjust_logic(kernel_metadata_dict)
 
   # Produce context save/restore logic
   context_save_logic = []
-  context_save_logic.append("; save context")
+  context_save_logic.append("; context save logic")
   context_restore_logic = []
-  context_restore_logic.append("; restore context")
+  context_restore_logic.append("; context restore logic")
   
   # Produce logic to preserve SGPR / VGPR
   next_sgpr = kernel_metadata_dict[host_kernel][NEXT_FREE_SGPR]
@@ -489,10 +489,8 @@ def abi_feature_analysis(kernel_metadata_dict):
   #print(kernel_metadata_dict[HOST_KERNEL])
   #print(kernel_metadata_dict[GUEST_KERNEL])
 
-  context_adjust_logic = []
-  context_adjust_logic.append("; adjust context")
-
   metadata_modified_needed = False
+  abi_analysis = {}
   for [feature, prefix] in [("private_segment_buffer", "amdhsa_user_sgpr_"), \
                             ("dispatch_ptr", "amdhsa_user_sgpr_"), \
                             ("queue_ptr", "amdhsa_user_sgpr_"), \
@@ -535,14 +533,41 @@ def abi_feature_analysis(kernel_metadata_dict):
     else:
       host_overriden = False
 
+    abi_analysis[feature] = {}
+    abi_analysis[feature]["host_declared"] = host_declared
+    abi_analysis[feature]["guest_declared"] = guest_declared
+    abi_analysis[feature]["host_used"] = host_used
+    abi_analysis[feature]["guest_used"] = guest_used
+    abi_analysis[feature]["host_overriden"] = host_overriden
+    abi_analysis[feature]["guest_overriden"] = guest_overriden
+
+  return abi_analysis
+
+
+def emit_context_adjust_logic(kernel_metadata_dict):
+  # Anaylsis ABI features
+  abi_analysis = abi_feature_analysis(kernel_metadata_dict)
+
+  context_adjust_logic = []
+  context_adjust_logic.append("; context adjust logic")
+
+  metadata_modified_needed = False
+  for feature in ["private_segment_buffer", "dispatch_ptr", "queue_ptr", "kernarg_segment_ptr", "flat_scratch_init", "workgroup_id_x", "workgroup_id_y", "workgroup_id_z"]:
+    host_declared = abi_analysis[feature]["host_declared"]
+    guest_declared = abi_analysis[feature]["guest_declared"]
+
     # Decide if host metadata need to be modified
     if host_declared == False and guest_declared == True:
       #print("\tNeed to modify host metadata")
       metadata_modified_needed = True
 
+    host_used = abi_analysis[feature]["host_used"]
+
     # Decide if context adjust logic need to be emitted
     if host_used == True and metadata_modified_needed == True:
       #print("\tNeed context adjust logic before host kernel")
+      host_registers = kernel_metadata_dict[HOST_KERNEL][feature]
+      guest_registers = kernel_metadata_dict[GUEST_KERNEL][feature]
       for [host_reg, guest_reg] in zip(host_registers, guest_registers):
         context_adjust_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(host_reg) + ', ' + 's' + str(guest_reg))
 
