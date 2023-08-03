@@ -288,6 +288,35 @@ def emit_context_save_restore_logic(kernel_metadata_dict, host_kernel, guest_ker
 
   return [context_save_logic, context_restore_logic]
 
+def merge_resource_allocation(kernel_metadata_dict, host_kernel, guest_kernel):
+  # Retreive LDS size
+  host_lds_size = kernel_metadata_dict[host_kernel][LDS_SIZE]
+  guest_lds_size = kernel_metadata_dict[guest_kernel][LDS_SIZE]
+  
+  # Retrieve next free SGPR / VGPR on host kernel
+  host_next_free_sgpr = kernel_metadata_dict[host_kernel][NEXT_FREE_SGPR]
+  host_next_free_vgpr = kernel_metadata_dict[host_kernel][NEXT_FREE_VGPR]
+  
+  # Retrieve next free SGPR / VGPR on guest kernel
+  guest_next_free_sgpr = kernel_metadata_dict[guest_kernel][NEXT_FREE_SGPR]
+  guest_next_free_vgpr = kernel_metadata_dict[guest_kernel][NEXT_FREE_VGPR]
+  
+  # Manipulate host kernel, modify metadata on kernarg segment size
+  host_kernarg_size = kernel_metadata_dict[host_kernel][KERNARG_SIZE]
+  guest_kernarg_size = kernel_metadata_dict[guest_kernel][KERNARG_SIZE]
+  kernel_metadata_dict[host_kernel][KERNARG_SIZE] = host_kernarg_size + guest_kernarg_size
+
+  # Manipulate host kernel, modify metadata on LDS usage
+  if guest_lds_size > host_lds_size:
+    kernel_metadata_dict[host_kernel][LDS_SIZE] = guest_lds_size
+
+  # Maniuplate host kernel, modify metadata on SGPR/VGPR usage
+  # TBD: Manipulate host kernel, modify metadata on AGPR usage
+  if guest_next_free_sgpr > host_next_free_sgpr:
+    kernel_metadata_dict[host_kernel][NEXT_FREE_SGPR] = guest_next_free_sgpr
+  if guest_next_free_vgpr > host_next_free_vgpr:
+    kernel_metadata_dict[host_kernel][NEXT_FREE_VGPR] = guest_next_free_vgpr
+
 def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kernel, kernel_prologue_list, kernel_epilogue_list, guest_kernel_is_from_binary = False):
 
   # Anaylsis ABI features
@@ -317,40 +346,13 @@ def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kerne
   [context_save_logic, context_restore_logic] = emit_context_save_restore_logic(kernel_metadata_dict, host_kernel, guest_kernel, kernel_code_dict)
 
   # Produce fused metadata
+  merge_resource_allocation(kernel_metadata_dict, host_kernel, guest_kernel)
 
-  # Retreive LDS size
-  host_lds_size = kernel_metadata_dict[host_kernel][LDS_SIZE]
-  guest_lds_size = kernel_metadata_dict[guest_kernel][LDS_SIZE]
-  
-  # Retrieve next free SGPR / VGPR on host kernel
-  host_next_free_sgpr = kernel_metadata_dict[host_kernel][NEXT_FREE_SGPR]
-  host_next_free_vgpr = kernel_metadata_dict[host_kernel][NEXT_FREE_VGPR]
-  #print("Next free SGPR on host kernel: " + str(host_next_free_sgpr))
-  #print("Next free VGPR on host kernel: " + str(host_next_free_vgpr))
-  
-  # Retrieve next free SGPR / VGPR on guest kernel
-  guest_next_free_sgpr = kernel_metadata_dict[guest_kernel][NEXT_FREE_SGPR]
-  guest_next_free_vgpr = kernel_metadata_dict[guest_kernel][NEXT_FREE_VGPR]
-  
-  # Manipulate host kernel, modify metadata on kernarg segment size
-  host_kernarg_size = kernel_metadata_dict[host_kernel][KERNARG_SIZE]
-  guest_kernarg_size = kernel_metadata_dict[guest_kernel][KERNARG_SIZE]
-  kernel_metadata_dict[host_kernel][KERNARG_SIZE] = host_kernarg_size + guest_kernarg_size
-
-  # Manipulate host kernel, modify metadata on LDS usage
-  if guest_lds_size > host_lds_size:
-    kernel_metadata_dict[host_kernel][LDS_SIZE] = guest_lds_size
-
-  # Maniuplate host kernel, modify metadata on SGPR/VGPR usage
-  # TBD: Manipulate host kernel, modify metadata on AGPR usage
-  if guest_next_free_sgpr > host_next_free_sgpr:
-    kernel_metadata_dict[host_kernel][NEXT_FREE_SGPR] = guest_next_free_sgpr
-  if guest_next_free_vgpr > host_next_free_vgpr:
-    kernel_metadata_dict[host_kernel][NEXT_FREE_VGPR] = guest_next_free_vgpr
-
-  # Modify SGPR / VGPR allocation on the fused kernel
-  # Modify kernarg size on the fused kernel
-  # Modify LDS size on the fused kernel
+  # Emit logic to modify resource allocation
+  # - Modify SGPR / VGPR allocation on the fused kernel
+  # - Modify kernarg size on the fused kernel
+  # - Modify LDS size on the fused kernel
+  # - TBD: Modify private size on the fused kernel
   done_next_free_vgpr = False
   done_next_free_sgpr = False
   done_kernarg_size = False
@@ -368,7 +370,7 @@ def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kerne
           modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(kernel_metadata_dict[host_kernel][NEXT_FREE_SGPR]))
         elif m.group(1) == KERNARG_SIZE:
           done_kernarg_size = True
-          modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(host_kernarg_size + guest_kernarg_size))
+          modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(kernel_metadata_dict[host_kernel][KERNARG_SIZE]))
         elif m.group(1) == LDS_SIZE:
           done_group_segment_fixed_size = True
           modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(kernel_metadata_dict[host_kernel][LDS_SIZE]))
@@ -379,6 +381,8 @@ def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kerne
     else:
       modified_kernel_epilogue_list.append(line.rstrip())
   kernel_epilogue_list = modified_kernel_epilogue_list
+
+  # TBD emit merged metadata on ROCm ABI features
   
   # Manipulate host kernel, disable s_endpgm
   for line_number in range(len(kernel_code_dict[host_kernel])):
@@ -410,7 +414,7 @@ def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kerne
   for line in kernel_epilogue_list:
     print(line.rstrip())
 
-def main(host_kernel, guest_kernel):
+def fuse_source_with_source(host_kernel, guest_kernel):
   # Lists
   kernel_name_list = []
   
@@ -495,7 +499,7 @@ def main(host_kernel, guest_kernel):
 
   fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kernel, kernel_prologue_list, kernel_epilogue_list)
   
-def test_fuse_with_dumper(host_kernel, guest_kernel):
+def fuse_source_with_dumper(host_kernel, guest_kernel):
   # Lists
   kernel_name_list = []
   
@@ -553,15 +557,18 @@ def test_fuse_with_dumper(host_kernel, guest_kernel):
   code_object_filename = dumper.get_code_object(LIBRCCL_PATH)
   [descriptor_address, descriptor_length, kernel_address, kernel_length] = dumper.get_symbol(code_object_filename, guest_kernel)
   kernel_code_dict[guest_kernel] = dumper.get_isa(code_object_filename, guest_kernel)
+
+  # Compute liveness analysis of guest kernel
   guest_liveness_dict = liveness.liveness_analysis(kernel_code_dict[guest_kernel])
 
+  # Get kernel metadata for guest kernel after liveness analysis
   kernel_metadata_dict[guest_kernel] = dumper.get_descriptor(code_object_filename, descriptor_address, descriptor_length, guest_liveness_dict)
-
   kernel_metadata_dict[guest_kernel]["liveness"] = guest_liveness_dict
 
   fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kernel, kernel_prologue_list, kernel_epilogue_list, True)
 
 def abi_feature_analysis(kernel_metadata_dict, host_kernel, guest_kernel):
+  # Retrieve information on the usage of ROCm ABI features
   abi_analysis = {}
   for [feature, prefix] in [("private_segment_buffer", "amdhsa_user_sgpr_"), \
                             ("dispatch_ptr", "amdhsa_user_sgpr_"), \
@@ -571,41 +578,21 @@ def abi_feature_analysis(kernel_metadata_dict, host_kernel, guest_kernel):
                             ("workgroup_id_x", "amdhsa_system_sgpr_"), \
                             ("workgroup_id_y", "amdhsa_system_sgpr_"), \
                             ("workgroup_id_z", "amdhsa_system_sgpr_")]:
-    host_declared = False
-    guest_declared = False
-    #print("ROCm ABI feature: " + feature)
-    if kernel_metadata_dict[host_kernel][prefix + feature] == 1:
-      #print("\tHost declared")
-      host_declared = True
-    if kernel_metadata_dict[guest_kernel][prefix + feature] == 1:
-      #print("\tGuest declared")
-      guest_declared = True
+    # Obtain if a ROCm ABI feature is declared
+    host_declared = (kernel_metadata_dict[host_kernel][prefix + feature] == 1)
+    guest_declared = (kernel_metadata_dict[guest_kernel][prefix + feature] == 1)
 
+    # Obtain if registers for a ROCm ABI feature is used
     host_used = kernel_metadata_dict[host_kernel].get(feature + "_used")
-    if host_used is not None and host_used == True:
-      #print("\tHost used")
-      pass
-    else:
-      guest_used = False
+    host_used = False if host_used is None else host_used
     guest_used = kernel_metadata_dict[guest_kernel].get(feature + "_used")
-    if guest_used is not None and guest_used == True:
-      #print("\tGuest used")
-      pass
-    else:
-      guest_used = False
+    geust_used = False if guest_used is None else guest_used
 
+    # Obtain if registers for a ROCm ABI feature is overriden
     host_overriden = kernel_metadata_dict[host_kernel].get(feature + "_overriden")
-    if host_overriden is not None and host_overriden == True:
-      #print("\tHost overriden")
-      pass
-    else:
-      host_overriden = False
+    host_overriden = False if host_overriden is None else host_overriden
     guest_overriden = kernel_metadata_dict[guest_kernel].get(feature + "_overriden")
-    if guest_overriden is not None and guest_overriden == True:
-      #print("\tGuest overriden")
-      pass
-    else:
-      guest_overriden = False
+    guest_overriden = False if guest_overriden is None else guest_overriden
 
     abi_analysis[feature] = {}
     abi_analysis[feature]["host_declared"] = host_declared
@@ -614,28 +601,22 @@ def abi_feature_analysis(kernel_metadata_dict, host_kernel, guest_kernel):
     abi_analysis[feature]["guest_used"] = guest_used
     abi_analysis[feature]["host_overriden"] = host_overriden
     abi_analysis[feature]["guest_overriden"] = guest_overriden
-
   return abi_analysis
 
 def emit_context_adjust_logic(kernel_metadata_dict, abi_analysis_dict, host_kernel, guest_kernel):
+  # Emit context adjust logic
+  # Prior analysis was already carried out to decide it's necessary to do the emission
   context_adjust_logic = []
   context_adjust_logic.append("; context adjust logic")
-
   for feature in ["private_segment_buffer", "dispatch_ptr", "queue_ptr", "kernarg_segment_ptr", "flat_scratch_init", "workgroup_id_x", "workgroup_id_y", "workgroup_id_z"]:
     host_used = abi_analysis_dict[feature]["host_used"]
-
-    # Decide if context adjust logic need to be emitted
     if host_used == True:
-      #print("\tNeed context adjust logic before host kernel")
       host_registers = kernel_metadata_dict[host_kernel][feature]
       guest_registers = kernel_metadata_dict[guest_kernel][feature]
       context_adjust_logic.append('\t; adjust ' + feature + ' SGPR')
       for [host_reg, guest_reg] in zip(host_registers, guest_registers):
         context_adjust_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(host_reg) + ', ' + 's' + str(guest_reg))
-
   context_adjust_logic.append("; begin of host kernel before context adjust")
-  #for line in context_adjust_logic:
-  #  print(line)
   return context_adjust_logic
 
 if __name__ == "__main__":
@@ -661,5 +642,5 @@ if __name__ == "__main__":
     # - context restore logic
     # - guest kernel logic
 
-    main(HOST_KERNEL, GUEST_KERNEL)
-    #test_fuse_with_dumper(HOST_KERNEL, RCCL_KERNEL_NAME)
+    fuse_source_with_source(HOST_KERNEL, GUEST_KERNEL)
+    #fuse_source_with_dumper(HOST_KERNEL, RCCL_KERNEL_NAME)
