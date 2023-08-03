@@ -176,91 +176,10 @@ def retrieve_sgpr_usage(kernel_name, metadata_dict):
 
 def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kernel, kernel_prologue_list, kernel_epilogue_list, guest_kernel_is_from_binary = False):
 
-  # Validate SGPR usage
-  #
-  # If guest uses, host must also uses:
-  # - PRIVATE_SEGMENT_BUFFER_INDEX = 0
-  # - DISPATCH_PTR_INDEX = 1
-  # - QUEUE_PTR_INDEX = 2
-  # - KERNARG_SEGMENT_PTR_INDEX = 3
-  # - DISPATCH_ID = 4
-  # - FLAT_SCRATCH_INIT = 5
+  # Produce context adjust logic
+  context_adjust_logic = abi_feature_analysis(kernel_metadata_dict)
 
-  # TBD. Logic here need to be improved further.
-  # Cases:
-  # - Host : F / Guest : F
-  #   - Nothing needs to be done
-  # - Host : T / Guest : F
-  #   - Nothing needs to be done
-  # - Host : F / Guest : T
-  #   - Need context adjust logic before host begins
-  #   - Need context save logic for guest kernel
-  #   - Need context restore logic for guest kernel
-  # - Host : T / Guest : T
-  #   - Need context save logic for guest kernel
-  #   - Need context restore logic for guest kernel
-  if kernel_metadata_dict[guest_kernel][USER_SGPR_DIRECTIVES[PRIVATE_SEGMENT_BUFFER_INDEX]] == 1 and \
-     kernel_metadata_dict[guest_kernel].get(PRIVATE_SEGMENT_BUFFER) is not None and \
-     kernel_metadata_dict[host_kernel][USER_SGPR_DIRECTIVES[PRIVATE_SEGMENT_BUFFER_INDEX]] != 1:
-    #print("Need to emit context save/restore logic for private segment buffer!")
-    pass
-  
-  if kernel_metadata_dict[guest_kernel][USER_SGPR_DIRECTIVES[DISPATCH_PTR_INDEX]] == 1 and \
-     kernel_metadata_dict[guest_kernel].get(DISPATCH_PTR) is not None and \
-     kernel_metadata_dict[host_kernel][USER_SGPR_DIRECTIVES[DISPATCH_PTR_INDEX]] != 1:
-    #print("Need to emit context save/restore logic for dispatch ptr!")
-    pass
-  
-  if kernel_metadata_dict[guest_kernel][USER_SGPR_DIRECTIVES[QUEUE_PTR_INDEX]] == 1 and \
-     kernel_metadata_dict[guest_kernel].get(QUEUE_PTR) is not None and \
-     kernel_metadata_dict[host_kernel][USER_SGPR_DIRECTIVES[QUEUE_PTR_INDEX]] != 1:
-    #print("Need to emit context save/restore logic for queue ptr!")
-    pass
-  
-  if kernel_metadata_dict[guest_kernel][USER_SGPR_DIRECTIVES[KERNARG_SEGMENT_PTR_INDEX]] == 1 and \
-     kernel_metadata_dict[guest_kernel].get(KERNARG_SEGMENT_PTR) is not None and \
-     kernel_metadata_dict[host_kernel][USER_SGPR_DIRECTIVES[KERNARG_SEGMENT_PTR_INDEX]] != 1:
-    #print("Need to emit context save/restore logic for kernarg segment ptr!")
-    pass
-  
-  if kernel_metadata_dict[guest_kernel][USER_SGPR_DIRECTIVES[DISPATCH_ID_INDEX]] == 1 and \
-     kernel_metadata_dict[guest_kernel].get(DISPATCH_ID) is not None and \
-     kernel_metadata_dict[host_kernel][USER_SGPR_DIRECTIVES[DISPATCH_ID_INDEX]] != 1:
-    #print("Need to emit context save/restore logic for dispatch id!")
-    pass
-
-  if kernel_metadata_dict[guest_kernel][USER_SGPR_DIRECTIVES[FLAT_SCRATCH_INIT_INDEX]] == 1 and \
-     kernel_metadata_dict[guest_kernel].get(FLAT_SCRATCH_INIT) is not None and \
-     kernel_metadata_dict[host_kernel][USER_SGPR_DIRECTIVES[FLAT_SCRATCH_INIT_INDEX]] != 1:
-    #print("Need to emit context save/restore logic for flat scratch init!")
-    pass
-
-  # Retreive kernarg size, compute kernarg offset
-  # Kernel signature merge takes place first before this logic could work
-  host_kernarg_size = kernel_metadata_dict[host_kernel][KERNARG_SIZE]
-  guest_kernarg_size = kernel_metadata_dict[guest_kernel][KERNARG_SIZE]
-  #kernarg_offset = host_kernarg_size - guest_kernarg_size
-  #if kernarg_offset < 0:
-  #  print("Host kernarg size is less than guest!")
-  #  exit(1)
-  kernarg_offset = host_kernarg_size
-  
-  # Retreive LDS size
-  host_lds_size = kernel_metadata_dict[host_kernel][LDS_SIZE]
-  guest_lds_size = kernel_metadata_dict[guest_kernel][LDS_SIZE]
-  
-  # Retrieve next free SGPR / VGPR on host kernel
-  host_next_free_sgpr = kernel_metadata_dict[host_kernel][NEXT_FREE_SGPR]
-  host_next_free_vgpr = kernel_metadata_dict[host_kernel][NEXT_FREE_VGPR]
-  #print("Next free SGPR on host kernel: " + str(host_next_free_sgpr))
-  #print("Next free VGPR on host kernel: " + str(host_next_free_vgpr))
-  
-  # Retrieve next free SGPR / VGPR on guest kernel
-  guest_next_free_sgpr = kernel_metadata_dict[guest_kernel][NEXT_FREE_SGPR]
-  guest_next_free_vgpr = kernel_metadata_dict[guest_kernel][NEXT_FREE_VGPR]
-  
   # Produce context save/restore logic
-  
   context_save_logic = []
   context_save_logic.append("; save context")
   context_restore_logic = []
@@ -312,6 +231,17 @@ def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kerne
     next_sgpr += 2
   
   # Produce logic to update kernarg segment pointer for the guest kernel
+
+  # Retreive kernarg size, compute kernarg offset
+  # Kernel signature merge takes place first before this logic could work
+  host_kernarg_size = kernel_metadata_dict[host_kernel][KERNARG_SIZE]
+  guest_kernarg_size = kernel_metadata_dict[guest_kernel][KERNARG_SIZE]
+  #kernarg_offset = host_kernarg_size - guest_kernarg_size
+  #if kernarg_offset < 0:
+  #  print("Host kernarg size is less than guest!")
+  #  exit(1)
+  kernarg_offset = host_kernarg_size
+  
   kernarg_segment_ptr_sgpr_be_updated = kernel_metadata_dict[guest_kernel][KERNARG_SEGMENT_PTR][0]
   context_restore_logic.append('\ts_addc_u32_e32' + ' ' + 's' + str(kernarg_segment_ptr_sgpr_be_updated) + ', ' + 's' + str(kernarg_segment_ptr_sgpr_be_updated) + ', ' + str(hex(kernarg_offset)))
   
@@ -321,8 +251,23 @@ def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kerne
   # Produce comment to indicate the beginning of fused kernel
   context_restore_logic.append("; begin of guest kernel")
 
+
   # Produce fused metadata
 
+  # Retreive LDS size
+  host_lds_size = kernel_metadata_dict[host_kernel][LDS_SIZE]
+  guest_lds_size = kernel_metadata_dict[guest_kernel][LDS_SIZE]
+  
+  # Retrieve next free SGPR / VGPR on host kernel
+  host_next_free_sgpr = kernel_metadata_dict[host_kernel][NEXT_FREE_SGPR]
+  host_next_free_vgpr = kernel_metadata_dict[host_kernel][NEXT_FREE_VGPR]
+  #print("Next free SGPR on host kernel: " + str(host_next_free_sgpr))
+  #print("Next free VGPR on host kernel: " + str(host_next_free_vgpr))
+  
+  # Retrieve next free SGPR / VGPR on guest kernel
+  guest_next_free_sgpr = kernel_metadata_dict[guest_kernel][NEXT_FREE_SGPR]
+  guest_next_free_vgpr = kernel_metadata_dict[guest_kernel][NEXT_FREE_VGPR]
+  
   # Manipulate host kernel, modify metadata on kernarg segment size
   kernel_metadata_dict[host_kernel][KERNARG_SIZE] = host_kernarg_size + guest_kernarg_size
 
@@ -387,8 +332,6 @@ def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kerne
   
   # TBD: global sync logic between host kernel and guest kernel
   
-  context_adjust_logic = abi_feature_analysis(kernel_metadata_dict)
-
   # Start fusion
   kernel_code_dict[host_kernel] = context_adjust_logic + context_save_logic + kernel_code_dict[host_kernel] + context_restore_logic + kernel_code_dict[guest_kernel]
   
@@ -479,16 +422,6 @@ def main():
 
   fuse_kernel(kernel_code_dict, kernel_metadata_dict, HOST_KERNEL, GUEST_KERNEL, kernel_prologue_list, kernel_epilogue_list)
   
-# Test use dumper
-def test_use_dumper():
-  code_object_filename = dumper.get_code_object(LIBRCCL_PATH)
-  [descriptor_address, descriptor_length, kernel_address, kernel_length] = dumper.get_symbol(code_object_filename, RCCL_KERNEL_NAME)
-  descriptor_dict = dumper.get_descriptor(code_object_filename, descriptor_address, descriptor_length)
-  isa = dumper.get_isa(code_object_filename, RCCL_KERNEL_NAME)
-  for line in isa:
-    print(line)
-  print(descriptor_dict)
-
 def test_fuse_with_dumper():
   # Lists
   kernel_name_list = []
