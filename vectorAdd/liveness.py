@@ -230,22 +230,22 @@ def deduce_descriptor(liveness_dict, descriptor_dict):
   # Log registers from features that are actually used
   for feature in ["private_segment_buffer", "dispatch_ptr", "queue_ptr", "kernarg_segment_ptr", "flat_scratch_init"]:
     if feature in descriptor_dict:
+      feature_used = False
       for reg in descriptor_dict[feature]:
-        if reg not in sgpr_initialized_by_cp:
-          del descriptor_dict[feature]
+        if reg in sgpr_initialized_by_cp:
+          feature_used = True
           break
+      descriptor_dict[feature + "_used"] = feature_used
 
   # Log registers from features that are overriden
   for feature in ["private_segment_buffer", "dispatch_ptr", "queue_ptr", "kernarg_segment_ptr", "flat_scratch_init"]:
     if feature in descriptor_dict:
       for reg in descriptor_dict[feature]:
-        l = liveness_dict['s' + str(reg)]
-        if l[0] < l[2]:
-          descriptor_dict[feature + "_overriden"] = 1
-        elif l[2] == -1:
-          descriptor_dict[feature + "_overriden"] = 0
+        l = liveness_dict.get('s' + str(reg))
+        if l is None or l[2] == -1:
+          descriptor_dict[feature + "_overriden"] = False
         else:
-          print("Unknown situtaion encountered!")
+          descriptor_dict[feature + "_overriden"] = True
         break
 
   # Understand the number of SGPRs set by ADC from RSRC2
@@ -263,10 +263,13 @@ def deduce_descriptor(liveness_dict, descriptor_dict):
       sgpr_initialized_by_adc.append(sgpr)
       if index == 0:
         descriptor_dict["workgroup_id_x"] = [sgpr]
+        descriptor_dict["workgroup_id_x" + "_used"] = True
       elif index == 1:
         descriptor_dict["workgroup_id_y"] = [sgpr]
+        descriptor_dict["workgroup_id_y" + "_used"] = True
       elif index == 2:
         descriptor_dict["workgroup_id_z"] = [sgpr]
+        descriptor_dict["workgroup_id_z" + "_used"] = True
 
   # Log registers from features that are overriden
   for feature in ["workgroup_id_x", "workgroup_id_y", "workgroup_id_z"]:
@@ -274,9 +277,9 @@ def deduce_descriptor(liveness_dict, descriptor_dict):
       for reg in descriptor_dict[feature]:
         l = liveness_dict['s' + str(reg)]
         if l[0] < l[2]:
-          descriptor_dict[feature + "_overriden"] = 1
+          descriptor_dict[feature + "_overriden"] = True
         elif l[2] == -1:
-          descriptor_dict[feature + "_overriden"] = 0
+          descriptor_dict[feature + "_overriden"] = False
         else:
           print("Unknown situtaion encountered!")
         break

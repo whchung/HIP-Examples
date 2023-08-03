@@ -7,7 +7,7 @@ import dumper
 import liveness
 
 # Configuration
-INPUT_FILE = "vectoradd_hip-hip-amdgcn-amd-amdhsa-gfx900.s"
+INPUT_FILE = "vectoradd_hip-hip-amdgcn-amd-amdhsa-gfx90a.s"
 FUSED_MANIFEST_FILE = "fused_manifest.txt"
 HOST_KERNEL = '_Z7kernel1PKfS0_Pf'
 GUEST_KERNEL = '_Z7kernel2PKfPf'
@@ -227,7 +227,9 @@ def emit_context_save_restore_logic(kernel_metadata_dict, host_kernel, guest_ker
     dim = DIMENSIONS[d]
     overriden = kernel_metadata_dict[host_kernel].get("workgroup_id_" + dim + "_overriden")
     if overriden is not None and overriden == 1:
+      context_save_logic.append('\t; save workgroup ID ' + dim)
       context_save_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(next_sgpr) + ', ' + 's' + str(kernel_metadata_dict[host_kernel][USER_SGPR_CP_COUNT] + user_sgpr_adc_saved))
+      context_restore_logic.append('\t; restore workgroup ID ' + dim)
       context_restore_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(kernel_metadata_dict[guest_kernel][USER_SGPR_CP_COUNT] + user_sgpr_adc_saved) + ', ' + 's' + str(next_sgpr))
       next_sgpr += 1
       user_sgpr_adc_saved += 1
@@ -239,36 +241,31 @@ def emit_context_save_restore_logic(kernel_metadata_dict, host_kernel, guest_ker
     if kernel_metadata_dict[host_kernel][SYSTEM_SGPR_WORKGROUP_ID + dim] == 1:
       vgpr_liveness = kernel_metadata_dict[host_kernel]["liveness"].get('v' + str(d))
       if vgpr_liveness is not None and vgpr_liveness[2] != 0:
+        context_save_logic.append('\t; save workitem ID ' + dim)
         context_save_logic.append('\tv_mov_b32_e32' + ' ' + 'v' + str(next_vgpr) + ', ' + 'v' + str(d))
+        context_restore_logic.append('\t; restore workitem ID ' + dim)
         context_restore_logic.append('\tv_mov_b32_e32' + ' ' + 'v' + str(d) + ', ' + 'v' + str(next_vgpr))
         next_vgpr += 1
   kernel_metadata_dict[host_kernel][NEXT_FREE_VGPR] = next_vgpr
 
-  #print(kernel_metadata_dict[host_kernel])
-  # TBD: use liveness analysis, only do it when necessary
-  # TBD: iterate through all ABI features
-  # Detect if SGPR for kernarg segment pointer has been modified in the host kernel
-  kernarg_segment_ptr_sgpr_modified = False
-  for line in kernel_code_dict[host_kernel]:
-    for sgpr in kernel_metadata_dict[host_kernel][KERNARG_SEGMENT_PTR]:
-      m = re.search(r'^[ \t]+[a-z0-9_]+ s' + str(sgpr), line)
-      if m is not None:
-        kernarg_segment_ptr_sgpr_modified = True
-        break
-  
-  # Produce logic to preserve kernarg segment pointer
-  # Only produce kernarg segment pointer preserving logic in case of one of the followings:
-  # - The register number is different between host and guest
-  # - The registers are overwritten within host
-  if kernarg_segment_ptr_sgpr_modified or (kernel_metadata_dict[host_kernel][KERNARG_SEGMENT_PTR] != kernel_metadata_dict[guest_kernel][KERNARG_SEGMENT_PTR]):
-    host_register = kernel_metadata_dict[host_kernel][KERNARG_SEGMENT_PTR][0]
-    context_save_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(next_sgpr) + ', ' + 's' + str(host_register))
-    context_save_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(next_sgpr + 1) + ', ' + 's' + str(host_register + 1))
-  
-    guest_register = kernel_metadata_dict[guest_kernel][KERNARG_SEGMENT_PTR][0]
-    context_restore_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(guest_register) + ', ' + 's' + str(next_sgpr))
-    context_restore_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(guest_register + 1) + ', ' + 's' + str(next_sgpr + 1))
-    next_sgpr += 2
+  # Anaylsis ABI features
+  abi_analysis_dict = abi_feature_analysis(kernel_metadata_dict, host_kernel, guest_kernel)
+
+  # Produce logic to preserve SGPR for a ROCm ABI feature
+  for feature in ["private_segment_buffer", "dispatch_ptr", "queue_ptr", "kernarg_segment_ptr", "flat_scratch_init"]:
+    # Only produce kernarg segment pointer preserving logic in case:
+    # - The registers are overwritten in the host
+    # - The registers are declared in the guest
+    # - The registers are used in the guest
+    if abi_analysis_dict[feature]["guest_declared"] and abi_analysis_dict[feature]["guest_used"] and abi_analysis_dict[feature]["host_overriden"]:
+      host_registers = kernel_metadata_dict[host_kernel][feature]
+      guest_registers = kernel_metadata_dict[guest_kernel][feature]
+      context_save_logic.append('\t; save ' + feature + ' SGPR')
+      context_restore_logic.append('\t; restore ' + feature + ' SGPR')
+      for (host_register, guest_register) in zip(host_registers, guest_registers):
+        context_save_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(next_sgpr) + ', ' + 's' + str(host_register))
+        context_restore_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(guest_register) + ', ' + 's' + str(next_sgpr))
+        next_sgpr += 1
   
   # Produce logic to update kernarg segment pointer for the guest kernel
 
@@ -282,6 +279,7 @@ def emit_context_save_restore_logic(kernel_metadata_dict, host_kernel, guest_ker
   kernarg_offset = host_kernarg_size
   
   kernarg_segment_ptr_sgpr_be_updated = kernel_metadata_dict[guest_kernel][KERNARG_SEGMENT_PTR][0]
+  context_restore_logic.append('\t; modify kernarg segment ptr to match guest kernel')
   context_restore_logic.append('\ts_addc_u32_e32' + ' ' + 's' + str(kernarg_segment_ptr_sgpr_be_updated) + ', ' + 's' + str(kernarg_segment_ptr_sgpr_be_updated) + ', ' + str(hex(kernarg_offset)))
   
   # Produce comment to indicate the beginning of host kernel
@@ -644,7 +642,6 @@ def fuse_source_with_dumper(host_kernel, guest_kernel):
   kernel_metadata_dict[guest_kernel] = dumper.get_descriptor(code_object_filename, descriptor_address, descriptor_length, guest_liveness_dict)
   kernel_metadata_dict[guest_kernel]["liveness"] = guest_liveness_dict
 
-  #abi_feature_analysis(kernel_metadata_dict)
   fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kernel, kernel_prologue_list, kernel_epilogue_list, True)
 
 def abi_feature_analysis(kernel_metadata_dict, host_kernel, guest_kernel):
@@ -693,6 +690,7 @@ def emit_context_adjust_logic(kernel_metadata_dict, abi_analysis_dict, host_kern
     if host_used == True:
       host_registers = kernel_metadata_dict[host_kernel][feature]
       guest_registers = kernel_metadata_dict[guest_kernel][feature]
+      context_adjust_logic.append('\t; adjust ' + feature + ' SGPR')
       for [host_reg, guest_reg] in zip(host_registers, guest_registers):
         context_adjust_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(host_reg) + ', ' + 's' + str(guest_reg))
   context_adjust_logic.append("; begin of host kernel before context adjust")
