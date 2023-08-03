@@ -544,10 +544,6 @@ def test_fuse_with_dumper():
   fuse_kernel(kernel_code_dict, kernel_metadata_dict, HOST_KERNEL, GUEST_KERNEL, kernel_prologue_list, kernel_epilogue_list, True)
 
 def abi_feature_analysis(kernel_metadata_dict):
-  #print(kernel_metadata_dict[HOST_KERNEL])
-  #print(kernel_metadata_dict[GUEST_KERNEL])
-
-  metadata_modified_needed = False
   abi_analysis = {}
   for [feature, prefix] in [("private_segment_buffer", "amdhsa_user_sgpr_"), \
                             ("dispatch_ptr", "amdhsa_user_sgpr_"), \
@@ -627,16 +623,22 @@ if __name__ == "__main__":
     # obtain guest / host kernel descriptor from binary
     # compute guest / host kernel metadata (potentially from kernel descriptor)
     # compute guest / host kernel register liveness analysis
-    # decide if host kernel metadata has to be modified
-    # produce context adjust logic
-    # modify host kernel metadata
-    # modify host kernel logic by inserting context adjust logic in the front
-    # re-compute host kernel register liveness analysis
+    # decide if host kernel metadata on ABI features has to be modified
+    # - produce context adjust logic
+    # - modify host kernel metadata on ABI features
+    # - modify host kernel logic by inserting context adjust logic in the front
+    # - re-compute host kernel register liveness analysis
     # produce context save/restore logic
+    # modify host kernel metadata on resource allocation
     # peep-hole host kernel logic modification
     # peep-hole guest kernel logic modification
     # product global sync logic
-    # kernel fusion by concatenating: context save logic + host kernel logic + global sync logic + context restore logic + guest kernel logic
+    # kernel fusion by concatenating:
+    # - context save logic
+    # - host kernel logic (may have context adjust logic in the beginning)
+    # - global sync logic
+    # - context restore logic
+    # - guest kernel logic
 
     main()
     #test_fuse_with_dumper()
