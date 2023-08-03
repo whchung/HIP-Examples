@@ -493,7 +493,7 @@ def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kerne
   for line in kernel_epilogue_list:
     print(line.rstrip())
 
-def main(host_kernel, guest_kernel):
+def fuse_source_with_source(host_kernel, guest_kernel):
   # Lists
   kernel_name_list = []
   
@@ -578,7 +578,7 @@ def main(host_kernel, guest_kernel):
 
   fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kernel, kernel_prologue_list, kernel_epilogue_list)
   
-def test_fuse_with_dumper(host_kernel, guest_kernel):
+def fuse_source_with_dumper(host_kernel, guest_kernel):
   # Lists
   kernel_name_list = []
   
@@ -636,16 +636,19 @@ def test_fuse_with_dumper(host_kernel, guest_kernel):
   code_object_filename = dumper.get_code_object(LIBRCCL_PATH)
   [descriptor_address, descriptor_length, kernel_address, kernel_length] = dumper.get_symbol(code_object_filename, guest_kernel)
   kernel_code_dict[guest_kernel] = dumper.get_isa(code_object_filename, guest_kernel)
+
+  # Compute liveness analysis of guest kernel
   guest_liveness_dict = liveness.liveness_analysis(kernel_code_dict[guest_kernel])
 
+  # Get kernel metadata for guest kernel after liveness analysis
   kernel_metadata_dict[guest_kernel] = dumper.get_descriptor(code_object_filename, descriptor_address, descriptor_length, guest_liveness_dict)
-
   kernel_metadata_dict[guest_kernel]["liveness"] = guest_liveness_dict
 
   #abi_feature_analysis(kernel_metadata_dict)
   fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kernel, kernel_prologue_list, kernel_epilogue_list, True)
 
 def abi_feature_analysis(kernel_metadata_dict, host_kernel, guest_kernel):
+  # Retrieve information on the usage of ROCm ABI features
   abi_analysis = {}
   for [feature, prefix] in [("private_segment_buffer", "amdhsa_user_sgpr_"), \
                             ("dispatch_ptr", "amdhsa_user_sgpr_"), \
@@ -655,39 +658,21 @@ def abi_feature_analysis(kernel_metadata_dict, host_kernel, guest_kernel):
                             ("workgroup_id_x", "amdhsa_system_sgpr_"), \
                             ("workgroup_id_y", "amdhsa_system_sgpr_"), \
                             ("workgroup_id_z", "amdhsa_system_sgpr_")]:
-    host_declared = False
-    guest_declared = False
-    #print("ROCm ABI feature: " + feature)
-    if kernel_metadata_dict[host_kernel][prefix + feature] == 1:
-      #print("\tHost declared")
-      host_declared = True
-    if kernel_metadata_dict[guest_kernel][prefix + feature] == 1:
-      #print("\tGuest declared")
-      guest_declared = True
+    # Obtain if a ROCm ABI feature is declared
+    host_declared = (kernel_metadata_dict[host_kernel][prefix + feature] == 1)
+    guest_declared = (kernel_metadata_dict[guest_kernel][prefix + feature] == 1)
 
-    host_registers = kernel_metadata_dict[host_kernel].get(feature)
-    host_used = False
-    if host_registers is not None:
-      #print("\tHost used: ", host_registers)
-      host_used = True
-    guest_registers = kernel_metadata_dict[guest_kernel].get(feature)
-    guest_used = False
-    if guest_registers is not None:
-      #print("\tGuest used: ", guest_registers)
-      guest_used = True
+    # Obtain if registers for a ROCm ABI feature is used
+    host_used = kernel_metadata_dict[host_kernel].get(feature + "_used")
+    host_used = False if host_used is None else host_used
+    guest_used = kernel_metadata_dict[guest_kernel].get(feature + "_used")
+    geust_used = False if guest_used is None else guest_used
 
+    # Obtain if registers for a ROCm ABI feature is overriden
     host_overriden = kernel_metadata_dict[host_kernel].get(feature + "_overriden")
-    if host_overriden is not None and host_overriden == 1:
-      #print("\tHost overriden")
-      pass
-    else:
-      host_overriden = False
+    host_overriden = False if host_overriden is None else host_overriden
     guest_overriden = kernel_metadata_dict[guest_kernel].get(feature + "_overriden")
-    if guest_overriden is not None and guest_overriden == 1:
-      #print("\tGuest overriden")
-      pass
-    else:
-      host_overriden = False
+    guest_overriden = False if guest_overriden is None else guest_overriden
 
     abi_analysis[feature] = {}
     abi_analysis[feature]["host_declared"] = host_declared
@@ -696,27 +681,21 @@ def abi_feature_analysis(kernel_metadata_dict, host_kernel, guest_kernel):
     abi_analysis[feature]["guest_used"] = guest_used
     abi_analysis[feature]["host_overriden"] = host_overriden
     abi_analysis[feature]["guest_overriden"] = guest_overriden
-
   return abi_analysis
 
 def emit_context_adjust_logic(kernel_metadata_dict, abi_analysis_dict, host_kernel, guest_kernel):
+  # Emit context adjust logic
+  # Prior analysis was already carried out to decide it's necessary to do the emission
   context_adjust_logic = []
   context_adjust_logic.append("; context adjust logic")
-
   for feature in ["private_segment_buffer", "dispatch_ptr", "queue_ptr", "kernarg_segment_ptr", "flat_scratch_init", "workgroup_id_x", "workgroup_id_y", "workgroup_id_z"]:
     host_used = abi_analysis_dict[feature]["host_used"]
-
-    # Decide if context adjust logic need to be emitted
     if host_used == True:
-      #print("\tNeed context adjust logic before host kernel")
       host_registers = kernel_metadata_dict[host_kernel][feature]
       guest_registers = kernel_metadata_dict[guest_kernel][feature]
       for [host_reg, guest_reg] in zip(host_registers, guest_registers):
         context_adjust_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(host_reg) + ', ' + 's' + str(guest_reg))
-
   context_adjust_logic.append("; begin of host kernel before context adjust")
-  #for line in context_adjust_logic:
-  #  print(line)
   return context_adjust_logic
 
 if __name__ == "__main__":
@@ -742,5 +721,5 @@ if __name__ == "__main__":
     # - context restore logic
     # - guest kernel logic
 
-    main(HOST_KERNEL, GUEST_KERNEL)
-    #test_fuse_with_dumper(HOST_KERNEL, RCCL_KERNEL_NAME)
+    fuse_source_with_source(HOST_KERNEL, GUEST_KERNEL)
+    #fuse_source_with_dumper(HOST_KERNEL, RCCL_KERNEL_NAME)
