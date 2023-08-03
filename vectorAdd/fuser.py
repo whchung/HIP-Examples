@@ -551,6 +551,21 @@ def abi_feature_analysis(kernel_metadata_dict):
   return context_adjust_logic
 
 if __name__ == "__main__":
+    # Kernel fusion process
+    # obtain guest / host kernel logic from source/binary
+    # obtain guest / host kernel descriptor from binary
+    # compute guest / host kernel metadata (potentially from kernel descriptor)
+    # compute guest / host kernel register liveness analysis
+    # decide if host kernel metadata has to be modified
+    # produce context adjust logic
+    # modify host kernel metadata
+    # modify host kernel logic by inserting context adjust logic in the front
+    # re-compute host kernel register liveness analysis
+    # produce context save/restore logic
+    # peep-hole host kernel logic modification
+    # peep-hole guest kernel logic modification
+    # product global sync logic
+    # kernel fusion by concatenating: context save logic + host kernel logic + global sync logic + context restore logic + guest kernel logic
+
     main()
-    #test_use_dumper()
     #test_fuse_with_dumper()
