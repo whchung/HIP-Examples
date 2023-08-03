@@ -18,8 +18,6 @@ def register_key_func(word):
   return register_file_number + register_number
 
 def liveness_analysis(isa):
-  if type(isa) != type([]):
-    isa = isa.splitlines()
   # entries is a 4-tuple:
   # 0: earliest input
   # 1: latest input
@@ -28,7 +26,6 @@ def liveness_analysis(isa):
   liveness_dict = {}
   line_number = 0
   for line in isa:
-    line = line[:line.find('//')].rstrip()
     #print(str(line_number) + ":\t" + line)
   
     token_index = 0
