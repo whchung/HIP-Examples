@@ -43,6 +43,7 @@ NEXT_FREE_VGPR = r'amdhsa_next_free_vgpr'
 
 KERNARG_SIZE = r'amdhsa_kernarg_size'
 LDS_SIZE = r'amdhsa_group_segment_fixed_size'
+PRIVATE_SIZE = r'amdhsa_private_segment_fixed_size'
 
 SYSTEM_SGPR_WORKGROUP_ID = r'amdhsa_system_sgpr_workgroup_id_'
 
@@ -293,6 +294,10 @@ def merge_resource_allocation(kernel_metadata_dict, host_kernel, guest_kernel):
   host_lds_size = kernel_metadata_dict[host_kernel][LDS_SIZE]
   guest_lds_size = kernel_metadata_dict[guest_kernel][LDS_SIZE]
   
+  # Retreive private size
+  host_private_size = kernel_metadata_dict[host_kernel][PRIVATE_SIZE]
+  guest_private_size = kernel_metadata_dict[guest_kernel][PRIVATE_SIZE]
+
   # Retrieve next free SGPR / VGPR on host kernel
   host_next_free_sgpr = kernel_metadata_dict[host_kernel][NEXT_FREE_SGPR]
   host_next_free_vgpr = kernel_metadata_dict[host_kernel][NEXT_FREE_VGPR]
@@ -309,6 +314,10 @@ def merge_resource_allocation(kernel_metadata_dict, host_kernel, guest_kernel):
   # Manipulate host kernel, modify metadata on LDS usage
   if guest_lds_size > host_lds_size:
     kernel_metadata_dict[host_kernel][LDS_SIZE] = guest_lds_size
+
+  # Manipulate host kernel, modify metadata on private usage
+  if guest_private_size > host_private_size:
+    kernel_metadata_dict[host_kernel][PRIVATE_SIZE] = guest_private_size
 
   # Maniuplate host kernel, modify metadata on SGPR/VGPR usage
   # TBD: Manipulate host kernel, modify metadata on AGPR usage
@@ -352,14 +361,15 @@ def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kerne
   # - Modify SGPR / VGPR allocation on the fused kernel
   # - Modify kernarg size on the fused kernel
   # - Modify LDS size on the fused kernel
-  # - TBD: Modify private size on the fused kernel
+  # - Modify private size on the fused kernel
   done_next_free_vgpr = False
   done_next_free_sgpr = False
   done_kernarg_size = False
   done_group_segment_fixed_size = False
+  done_private_segment_fixed_size = False
   modified_kernel_epilogue_list = []
   for line in kernel_epilogue_list:
-    if done_next_free_vgpr == False or done_next_free_sgpr == False or done_kernarg_size == False or done_group_segment_fixed_size == False:
+    if done_next_free_vgpr == False or done_next_free_sgpr == False or done_kernarg_size == False or done_group_segment_fixed_size == False or done_private_segment_fixed_size == False:
       m = re.search(KERNEL_METADATA_ENTRY_REGEX, line)
       if m is not None:
         if m.group(1) == NEXT_FREE_VGPR:
@@ -374,6 +384,9 @@ def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kerne
         elif m.group(1) == LDS_SIZE:
           done_group_segment_fixed_size = True
           modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(kernel_metadata_dict[host_kernel][LDS_SIZE]))
+        elif m.group(1) == PRIVATE_SIZE:
+          done_private_segment_fixed_size = True
+          modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(kernel_metadata_dict[host_kernel][PRIVATE_SIZE]))
         else:
           modified_kernel_epilogue_list.append(line.rstrip())
       else:

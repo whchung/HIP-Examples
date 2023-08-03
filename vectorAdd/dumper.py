@@ -119,6 +119,10 @@ def get_descriptor(code_object_filename, descriptor_address, descriptor_length, 
   lds_size = fetch_number(descriptor, 0, 4)
   descriptor_dict["amdhsa_group_segment_fixed_size"] = lds_size
   #print("GROUP SEGMENT: " + str(lds_size))
+
+  # Obtain private size
+  private_size = fetch_number(descriptor, 4, 4)
+  descriptor_dict["amdhsa_private_segment_fixed_size"] = private_size
   
   # Obtain kernarg size
   kernarg_size = fetch_number(descriptor, 8, 4) 
