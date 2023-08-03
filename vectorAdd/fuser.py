@@ -208,58 +208,43 @@ def merge_abi_features(kernel_metadata_dict, host_kernel, guest_kernel):
   kernel_metadata_dict[host_kernel][USER_SGPR_CP_COUNT] = kernel_metadata_dict[guest_kernel][USER_SGPR_CP_COUNT]
   kernel_metadata_dict[host_kernel][USER_SGPR_ADC_COUNT] = kernel_metadata_dict[guest_kernel][USER_SGPR_ADC_COUNT]
 
-def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kernel, kernel_prologue_list, kernel_epilogue_list, guest_kernel_is_from_binary = False):
-
-  # Anaylsis ABI features
-  abi_analysis_dict = abi_feature_analysis(kernel_metadata_dict)
-
-  # Decide if host kernel metadata has to be modified
-  host_metadata_modification_needed = decide_host_metadata_modification_needed(abi_analysis_dict)
-
-  if host_metadata_modification_needed == True:
-    # Produce context adjust logic
-    context_adjust_logic = emit_context_adjust_logic(kernel_metadata_dict, abi_analysis_dict)
-
-    # Modify host kernel metadata
-    merge_abi_features(kernel_metadata_dict, host_kernel, guest_kernel)
-
-    # Modify host kernel logic by inserting context adjust logic in the front
-    kernel_code_dict[host_kernel] = context_adjust_logic + kernel_code_dict[host_kernel]
-
-    # Re-compute host kernel register liveness analysis
-    l_host = liveness.liveness_analysis(kernel_code_dict[host_kernel])
-
-    # Update kernel metadata for host kernel after liveness analysis
-    kernel_metadata_dict[host_kernel] = liveness.deduce_descriptor(l_host, kernel_metadata_dict[host_kernel])
-
+def emit_context_save_restore_logic(kernel_metadata_dict, host_kernel, guest_kernel, kernel_code_dict):
   # Produce context save/restore logic
   context_save_logic = []
   context_save_logic.append("; context save logic")
   context_restore_logic = []
   context_restore_logic.append("; context restore logic")
   
-  # Produce logic to preserve SGPR / VGPR
+  # Obtain the next available SGPR / VGPR
   next_sgpr = kernel_metadata_dict[host_kernel][NEXT_FREE_SGPR]
   next_vgpr = kernel_metadata_dict[host_kernel][NEXT_FREE_VGPR]
   
-  # Product logic to preserve workgroup ID SGPR + workitem ID VGPR
+  # Product logic to preserve workgroup ID SGPR
   user_sgpr_adc_saved = 0
   for d in range(len(DIMENSIONS)):
     dim = DIMENSIONS[d]
-    if kernel_metadata_dict[guest_kernel][SYSTEM_SGPR_WORKGROUP_ID + dim] == 1:
+    overriden = kernel_metadata_dict[host_kernel].get("workgroup_id_" + dim + "_overriden")
+    if overriden is not None and overriden == 1:
       context_save_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(next_sgpr) + ', ' + 's' + str(kernel_metadata_dict[host_kernel][USER_SGPR_CP_COUNT] + user_sgpr_adc_saved))
-      context_save_logic.append('\tv_mov_b32_e32' + ' ' + 'v' + str(next_vgpr) + ', ' + 'v' + str(d))
-  
       context_restore_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(kernel_metadata_dict[guest_kernel][USER_SGPR_CP_COUNT] + user_sgpr_adc_saved) + ', ' + 's' + str(next_sgpr))
-      context_restore_logic.append('\tv_mov_b32_e32' + ' ' + 'v' + str(d) + ', ' + 'v' + str(next_vgpr))
-  
       next_sgpr += 1
-      next_vgpr += 1
       user_sgpr_adc_saved += 1
-  
   kernel_metadata_dict[host_kernel][NEXT_FREE_SGPR] = next_sgpr
+  
+  # Product logic to preserve workitem ID VGPR
+  for d in range(len(DIMENSIONS)):
+    dim = DIMENSIONS[d]
+    if kernel_metadata_dict[host_kernel][SYSTEM_SGPR_WORKGROUP_ID + dim] == 1:
+      vgpr_liveness = kernel_metadata_dict[host_kernel]["liveness"].get('v' + str(d))
+      if vgpr_liveness is not None and vgpr_liveness[2] != 0:
+        context_save_logic.append('\tv_mov_b32_e32' + ' ' + 'v' + str(next_vgpr) + ', ' + 'v' + str(d))
+        context_restore_logic.append('\tv_mov_b32_e32' + ' ' + 'v' + str(d) + ', ' + 'v' + str(next_vgpr))
+        next_vgpr += 1
   kernel_metadata_dict[host_kernel][NEXT_FREE_VGPR] = next_vgpr
 
+  #print(kernel_metadata_dict[host_kernel])
+  # TBD: use liveness analysis, only do it when necessary
+  # TBD: iterate through all ABI features
   # Detect if SGPR for kernarg segment pointer has been modified in the host kernel
   kernarg_segment_ptr_sgpr_modified = False
   for line in kernel_code_dict[host_kernel]:
@@ -286,7 +271,6 @@ def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kerne
   # Produce logic to update kernarg segment pointer for the guest kernel
 
   # Retreive kernarg size, compute kernarg offset
-  # Kernel signature merge takes place first before this logic could work
   host_kernarg_size = kernel_metadata_dict[host_kernel][KERNARG_SIZE]
   guest_kernarg_size = kernel_metadata_dict[guest_kernel][KERNARG_SIZE]
   #kernarg_offset = host_kernarg_size - guest_kernarg_size
@@ -304,6 +288,35 @@ def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kerne
   # Produce comment to indicate the beginning of fused kernel
   context_restore_logic.append("; begin of guest kernel")
 
+  return [context_save_logic, context_restore_logic]
+
+def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kernel, kernel_prologue_list, kernel_epilogue_list, guest_kernel_is_from_binary = False):
+
+  # Anaylsis ABI features
+  abi_analysis_dict = abi_feature_analysis(kernel_metadata_dict, host_kernel, guest_kernel)
+
+  # Decide if host kernel metadata has to be modified
+  host_metadata_modification_needed = decide_host_metadata_modification_needed(abi_analysis_dict)
+
+  if host_metadata_modification_needed == True:
+    # Produce context adjust logic
+    context_adjust_logic = emit_context_adjust_logic(kernel_metadata_dict, abi_analysis_dict, host_kernel, guest_kernel)
+
+    # Modify host kernel metadata
+    merge_abi_features(kernel_metadata_dict, host_kernel, guest_kernel)
+
+    # Modify host kernel logic by inserting context adjust logic in the front
+    kernel_code_dict[host_kernel] = context_adjust_logic + kernel_code_dict[host_kernel]
+
+    # Re-compute host kernel register liveness analysis
+    host_liveness_dict = liveness.liveness_analysis(kernel_code_dict[host_kernel])
+    kernel_metadata_dict[host_kernel]["liveness"] = host_liveness_dict
+
+    # Update kernel metadata for host kernel after liveness analysis
+    kernel_metadata_dict[host_kernel] = liveness.deduce_descriptor(host_liveness_dict, kernel_metadata_dict[host_kernel])
+
+  # Produce context save/restore logic
+  [context_save_logic, context_restore_logic] = emit_context_save_restore_logic(kernel_metadata_dict, host_kernel, guest_kernel, kernel_code_dict)
 
   # Produce fused metadata
 
@@ -322,6 +335,8 @@ def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kerne
   guest_next_free_vgpr = kernel_metadata_dict[guest_kernel][NEXT_FREE_VGPR]
   
   # Manipulate host kernel, modify metadata on kernarg segment size
+  host_kernarg_size = kernel_metadata_dict[host_kernel][KERNARG_SIZE]
+  guest_kernarg_size = kernel_metadata_dict[guest_kernel][KERNARG_SIZE]
   kernel_metadata_dict[host_kernel][KERNARG_SIZE] = host_kernarg_size + guest_kernarg_size
 
   # Manipulate host kernel, modify metadata on LDS usage
@@ -397,7 +412,7 @@ def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kerne
   for line in kernel_epilogue_list:
     print(line.rstrip())
 
-def main():
+def main(host_kernel, guest_kernel):
   # Lists
   kernel_name_list = []
   
@@ -438,16 +453,16 @@ def main():
   
   if fused_manifest_file is not None:
     manifest_lines = fused_manifest_file.readlines()
-    HOST_KERNEL = manifest_lines[0].rstrip()
-    GUEST_KERNEL = manifest_lines[1].rstrip()
+    host_kernel = manifest_lines[0].rstrip()
+    guest_kernel = manifest_lines[1].rstrip()
   
   # Identify host and guest kernel
   host_kernel_identified = False
   guest_kernel_identified = False
   for kernel_name in kernel_name_list:
-    if kernel_name == HOST_KERNEL:
+    if kernel_name == host_kernel:
       host_kernel_identified = True
-    elif kernel_name == GUEST_KERNEL:
+    elif kernel_name == guest_kernel:
       guest_kernel_identified = True
   
   if host_kernel_identified == False:
@@ -460,27 +475,29 @@ def main():
   
   # Get kernel code and metadata
   input_file.seek(0)
-  retrieve_kernel_source_code(HOST_KERNEL, input_file, kernel_code_dict, True, kernel_prologue_list, kernel_epilogue_list)
+  retrieve_kernel_source_code(host_kernel, input_file, kernel_code_dict, True, kernel_prologue_list, kernel_epilogue_list)
   input_file.seek(0)
-  retrieve_kernel_metadata(HOST_KERNEL, input_file, kernel_metadata_dict)
+  retrieve_kernel_metadata(host_kernel, input_file, kernel_metadata_dict)
   
   input_file.seek(0)
-  retrieve_kernel_source_code(GUEST_KERNEL, input_file, kernel_code_dict)
+  retrieve_kernel_source_code(guest_kernel, input_file, kernel_code_dict)
   input_file.seek(0)
-  retrieve_kernel_metadata(GUEST_KERNEL, input_file, kernel_metadata_dict)
+  retrieve_kernel_metadata(guest_kernel, input_file, kernel_metadata_dict)
   
   # Retrieve kernel SGPR usage
-  retrieve_sgpr_usage(HOST_KERNEL, kernel_metadata_dict)
-  retrieve_sgpr_usage(GUEST_KERNEL, kernel_metadata_dict)
+  retrieve_sgpr_usage(host_kernel, kernel_metadata_dict)
+  retrieve_sgpr_usage(guest_kernel, kernel_metadata_dict)
 
   # Compute liveness analysis of host kernel
-  host_liveness_dict = liveness.liveness_analysis(kernel_code_dict[HOST_KERNEL])
-  # Update kernel metadata for host kernel after liveness analysis
-  kernel_metadata_dict[HOST_KERNEL] = liveness.deduce_descriptor(host_liveness_dict, kernel_metadata_dict[HOST_KERNEL])
+  host_liveness_dict = liveness.liveness_analysis(kernel_code_dict[host_kernel])
+  kernel_metadata_dict[host_kernel]["liveness"] = host_liveness_dict
 
-  fuse_kernel(kernel_code_dict, kernel_metadata_dict, HOST_KERNEL, GUEST_KERNEL, kernel_prologue_list, kernel_epilogue_list)
+  # Update kernel metadata for host kernel after liveness analysis
+  kernel_metadata_dict[host_kernel] = liveness.deduce_descriptor(host_liveness_dict, kernel_metadata_dict[host_kernel])
+
+  fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kernel, kernel_prologue_list, kernel_epilogue_list)
   
-def test_fuse_with_dumper():
+def test_fuse_with_dumper(host_kernel, guest_kernel):
   # Lists
   kernel_name_list = []
   
@@ -511,7 +528,7 @@ def test_fuse_with_dumper():
   # Identify host kernel
   host_kernel_identified = False
   for kernel_name in kernel_name_list:
-    if kernel_name == HOST_KERNEL:
+    if kernel_name == host_kernel:
       host_kernel_identified = True
   
   if host_kernel_identified == False:
@@ -520,30 +537,34 @@ def test_fuse_with_dumper():
   
   # Get kernel code and metadata
   input_file.seek(0)
-  retrieve_kernel_source_code(HOST_KERNEL, input_file, kernel_code_dict, True, kernel_prologue_list, kernel_epilogue_list)
+  retrieve_kernel_source_code(host_kernel, input_file, kernel_code_dict, True, kernel_prologue_list, kernel_epilogue_list)
   input_file.seek(0)
-  retrieve_kernel_metadata(HOST_KERNEL, input_file, kernel_metadata_dict)
+  retrieve_kernel_metadata(host_kernel, input_file, kernel_metadata_dict)
   
   # Retrieve kernel SGPR usage
-  retrieve_sgpr_usage(HOST_KERNEL, kernel_metadata_dict)
+  retrieve_sgpr_usage(host_kernel, kernel_metadata_dict)
 
   # Compute liveness analysis of host kernel
-  host_liveness_dict = liveness.liveness_analysis(kernel_code_dict[HOST_KERNEL])
+  host_liveness_dict = liveness.liveness_analysis(kernel_code_dict[host_kernel])
+  kernel_metadata_dict[host_kernel]["liveness"] = host_liveness_dict
+
   # Update kernel metadata for host kernel after liveness analysis
-  kernel_metadata_dict[HOST_KERNEL] = liveness.deduce_descriptor(host_liveness_dict, kernel_metadata_dict[HOST_KERNEL])
+  kernel_metadata_dict[host_kernel] = liveness.deduce_descriptor(host_liveness_dict, kernel_metadata_dict[host_kernel])
 
   # Obtain guest kernel from dumper
   code_object_filename = dumper.get_code_object(LIBRCCL_PATH)
-  [descriptor_address, descriptor_length, kernel_address, kernel_length] = dumper.get_symbol(code_object_filename, RCCL_KERNEL_NAME)
-  kernel_code_dict[GUEST_KERNEL] = dumper.get_isa(code_object_filename, RCCL_KERNEL_NAME)
-  guest_liveness_dict = liveness.liveness_analysis(kernel_code_dict[GUEST_KERNEL])
+  [descriptor_address, descriptor_length, kernel_address, kernel_length] = dumper.get_symbol(code_object_filename, guest_kernel)
+  kernel_code_dict[guest_kernel] = dumper.get_isa(code_object_filename, guest_kernel)
+  guest_liveness_dict = liveness.liveness_analysis(kernel_code_dict[guest_kernel])
 
-  kernel_metadata_dict[GUEST_KERNEL] = dumper.get_descriptor(code_object_filename, descriptor_address, descriptor_length, guest_liveness_dict)
+  kernel_metadata_dict[guest_kernel] = dumper.get_descriptor(code_object_filename, descriptor_address, descriptor_length, guest_liveness_dict)
+
+  kernel_metadata_dict[guest_kernel]["liveness"] = guest_liveness_dict
 
   #abi_feature_analysis(kernel_metadata_dict)
-  fuse_kernel(kernel_code_dict, kernel_metadata_dict, HOST_KERNEL, GUEST_KERNEL, kernel_prologue_list, kernel_epilogue_list, True)
+  fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kernel, kernel_prologue_list, kernel_epilogue_list, True)
 
-def abi_feature_analysis(kernel_metadata_dict):
+def abi_feature_analysis(kernel_metadata_dict, host_kernel, guest_kernel):
   abi_analysis = {}
   for [feature, prefix] in [("private_segment_buffer", "amdhsa_user_sgpr_"), \
                             ("dispatch_ptr", "amdhsa_user_sgpr_"), \
@@ -556,31 +577,31 @@ def abi_feature_analysis(kernel_metadata_dict):
     host_declared = False
     guest_declared = False
     #print("ROCm ABI feature: " + feature)
-    if kernel_metadata_dict[HOST_KERNEL][prefix + feature] == 1:
+    if kernel_metadata_dict[host_kernel][prefix + feature] == 1:
       #print("\tHost declared")
       host_declared = True
-    if kernel_metadata_dict[GUEST_KERNEL][prefix + feature] == 1:
+    if kernel_metadata_dict[guest_kernel][prefix + feature] == 1:
       #print("\tGuest declared")
       guest_declared = True
 
-    host_registers = kernel_metadata_dict[HOST_KERNEL].get(feature)
+    host_registers = kernel_metadata_dict[host_kernel].get(feature)
     host_used = False
     if host_registers is not None:
       #print("\tHost used: ", host_registers)
       host_used = True
-    guest_registers = kernel_metadata_dict[GUEST_KERNEL].get(feature)
+    guest_registers = kernel_metadata_dict[guest_kernel].get(feature)
     guest_used = False
     if guest_registers is not None:
       #print("\tGuest used: ", guest_registers)
       guest_used = True
 
-    host_overriden = kernel_metadata_dict[HOST_KERNEL].get(feature + "_overriden")
+    host_overriden = kernel_metadata_dict[host_kernel].get(feature + "_overriden")
     if host_overriden is not None and host_overriden == 1:
       #print("\tHost overriden")
       pass
     else:
       host_overriden = False
-    guest_overriden = kernel_metadata_dict[GUEST_KERNEL].get(feature + "_overriden")
+    guest_overriden = kernel_metadata_dict[guest_kernel].get(feature + "_overriden")
     if guest_overriden is not None and guest_overriden == 1:
       #print("\tGuest overriden")
       pass
@@ -597,7 +618,7 @@ def abi_feature_analysis(kernel_metadata_dict):
 
   return abi_analysis
 
-def emit_context_adjust_logic(kernel_metadata_dict, abi_analysis_dict):
+def emit_context_adjust_logic(kernel_metadata_dict, abi_analysis_dict, host_kernel, guest_kernel):
   context_adjust_logic = []
   context_adjust_logic.append("; context adjust logic")
 
@@ -607,8 +628,8 @@ def emit_context_adjust_logic(kernel_metadata_dict, abi_analysis_dict):
     # Decide if context adjust logic need to be emitted
     if host_used == True:
       #print("\tNeed context adjust logic before host kernel")
-      host_registers = kernel_metadata_dict[HOST_KERNEL][feature]
-      guest_registers = kernel_metadata_dict[GUEST_KERNEL][feature]
+      host_registers = kernel_metadata_dict[host_kernel][feature]
+      guest_registers = kernel_metadata_dict[guest_kernel][feature]
       for [host_reg, guest_reg] in zip(host_registers, guest_registers):
         context_adjust_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(host_reg) + ', ' + 's' + str(guest_reg))
 
@@ -640,5 +661,5 @@ if __name__ == "__main__":
     # - context restore logic
     # - guest kernel logic
 
-    main()
-    #test_fuse_with_dumper()
+    main(HOST_KERNEL, GUEST_KERNEL)
+    #test_fuse_with_dumper(HOST_KERNEL, RCCL_KERNEL_NAME)
