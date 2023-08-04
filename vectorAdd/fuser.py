@@ -357,6 +357,87 @@ def guest_peephold_modification(guest_kernel_code):
       guest_kernel_code[line_number] = m.group(1) + r'FUSED_BB' + m.group(2) + '_' + m.group(3) + m.group(4)
   return guest_kernel_code
 
+def emit_modified_kernel_epilogue(kernel_metadata_dict, host_kernel, kernel_epilogue_list):
+  # Emit logic to modify resource allocation
+  # - Modify SGPR / VGPR allocation on the fused kernel
+  # - Modify kernarg size on the fused kernel
+  # - Modify LDS size on the fused kernel
+  # - Modify private size on the fused kernel
+  done_next_free_vgpr = False
+  done_next_free_sgpr = False
+  done_agpr_offset = False
+  done_kernarg_size = False
+  done_group_segment_fixed_size = False
+  done_private_segment_fixed_size = False
+  reach_end_of_metadata = False
+  modified_kernel_epilogue_list = []
+  for line in kernel_epilogue_list:
+    m = re.search(KERNEL_METADATA_END_REGEX, line)
+    if m is not None:
+      reach_end_of_metadata = True
+
+    if reach_end_of_metadata == False and (done_next_free_vgpr == False or done_next_free_sgpr == False or done_kernarg_size == False or done_group_segment_fixed_size == False or done_private_segment_fixed_size == False or done_agpr_offset == False):
+      m = re.search(KERNEL_METADATA_ENTRY_REGEX, line)
+      if m is not None:
+        if m.group(1) == NEXT_FREE_VGPR:
+          done_next_free_vgpr = True
+          modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(kernel_metadata_dict[host_kernel][NEXT_FREE_VGPR]))
+        elif m.group(1) == NEXT_FREE_SGPR:
+          done_next_free_sgpr = True
+          modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(kernel_metadata_dict[host_kernel][NEXT_FREE_SGPR]))
+        elif m.group(1) == KERNARG_SIZE:
+          done_kernarg_size = True
+          modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(kernel_metadata_dict[host_kernel][KERNARG_SIZE]))
+        elif m.group(1) == LDS_SIZE:
+          done_group_segment_fixed_size = True
+          modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(kernel_metadata_dict[host_kernel][LDS_SIZE]))
+        elif m.group(1) == PRIVATE_SIZE:
+          done_private_segment_fixed_size = True
+          modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(kernel_metadata_dict[host_kernel][PRIVATE_SIZE]))
+        elif m.group(1) == AGPR_OFFSET:
+          done_agpr_offset = True
+          agpr_offset = kernel_metadata_dict[host_kernel].get(AGPR_OFFSET)
+          agpr_offset = 0 if agpr_offset is None else agpr_offset
+          modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(agpr_offset))
+        else:
+          modified_kernel_epilogue_list.append(line.rstrip())
+      else:
+        modified_kernel_epilogue_list.append(line.rstrip())
+    else:
+      modified_kernel_epilogue_list.append(line.rstrip())
+  kernel_epilogue_list = modified_kernel_epilogue_list
+
+  # Emit merged metadata on ROCm ABI features
+  modified_kernel_epilogue_list = []
+  reach_end_of_metadata = False
+  for line in kernel_epilogue_list:
+    m = re.search(KERNEL_METADATA_END_REGEX, line)
+    if m is not None:
+      reach_end_of_metadata = True
+
+    if reach_end_of_metadata == False:
+      m = re.search(KERNEL_METADATA_ENTRY_REGEX, line)
+      if m is not None:
+        for [feature, prefix] in [("private_segment_buffer", "amdhsa_user_sgpr_"), \
+                                  ("dispatch_ptr", "amdhsa_user_sgpr_"), \
+                                  ("queue_ptr", "amdhsa_user_sgpr_"), \
+                                  ("kernarg_segment_ptr", "amdhsa_user_sgpr_"), \
+                                  ("flat_scratch_init", "amdhsa_user_sgpr_"), \
+                                  ("workgroup_id_x", "amdhsa_system_sgpr_"), \
+                                  ("workgroup_id_y", "amdhsa_system_sgpr_"), \
+                                  ("workgroup_id_z", "amdhsa_system_sgpr_")]:
+          if m.group(1) == prefix + feature:
+            modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(kernel_metadata_dict[host_kernel][prefix + feature]))
+            break
+        else:
+          modified_kernel_epilogue_list.append(line.rstrip())
+      else:
+        modified_kernel_epilogue_list.append(line.rstrip())
+    else:
+      modified_kernel_epilogue_list.append(line.rstrip())
+  kernel_epilogue_list = modified_kernel_epilogue_list
+  return kernel_epilogue_list
+
 def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kernel, kernel_prologue_list, kernel_epilogue_list, guest_kernel_is_from_binary = False):
 
   # Anaylsis ABI features
@@ -386,44 +467,10 @@ def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kerne
   [context_save_logic, context_restore_logic] = emit_context_save_restore_logic(kernel_metadata_dict, host_kernel, guest_kernel, kernel_code_dict)
 
   # Produce fused metadata
+  merge_resource_allocation(kernel_metadata_dict, host_kernel, guest_kernel)
 
-  # Emit logic to modify resource allocation
-  # - Modify SGPR / VGPR allocation on the fused kernel
-  # - Modify kernarg size on the fused kernel
-  # - Modify LDS size on the fused kernel
-  # - Modify private size on the fused kernel
-  done_next_free_vgpr = False
-  done_next_free_sgpr = False
-  done_kernarg_size = False
-  done_group_segment_fixed_size = False
-  done_private_segment_fixed_size = False
-  modified_kernel_epilogue_list = []
-  for line in kernel_epilogue_list:
-    if done_next_free_vgpr == False or done_next_free_sgpr == False or done_kernarg_size == False or done_group_segment_fixed_size == False or done_private_segment_fixed_size == False:
-      m = re.search(KERNEL_METADATA_ENTRY_REGEX, line)
-      if m is not None:
-        if m.group(1) == NEXT_FREE_VGPR:
-          done_next_free_vgpr = True
-          modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(kernel_metadata_dict[host_kernel][NEXT_FREE_VGPR]))
-        elif m.group(1) == NEXT_FREE_SGPR:
-          done_next_free_sgpr = True
-          modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(kernel_metadata_dict[host_kernel][NEXT_FREE_SGPR]))
-        elif m.group(1) == KERNARG_SIZE:
-          done_kernarg_size = True
-          modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(host_kernarg_size + guest_kernarg_size))
-        elif m.group(1) == LDS_SIZE:
-          done_group_segment_fixed_size = True
-          modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(kernel_metadata_dict[host_kernel][LDS_SIZE]))
-        elif m.group(1) == PRIVATE_SIZE:
-          done_private_segment_fixed_size = True
-          modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(kernel_metadata_dict[host_kernel][PRIVATE_SIZE]))
-        else:
-          modified_kernel_epilogue_list.append(line.rstrip())
-      else:
-        modified_kernel_epilogue_list.append(line.rstrip())
-    else:
-      modified_kernel_epilogue_list.append(line.rstrip())
-  kernel_epilogue_list = modified_kernel_epilogue_list
+  # Emit logic modified metadata on  resource allocation and ROCm ABI features
+  kernel_epilogue_list = emit_modified_kernel_epilogue(kernel_metadata_dict, host_kernel, kernel_epilogue_list)
   
   # Peephole modification for host kernel
   kernel_code_dict[host_kernel] = host_peephole_modification(kernel_code_dict[host_kernel])
