@@ -40,11 +40,12 @@ FLAT_SCRATCH_INIT_INDEX = 5
 
 NEXT_FREE_SGPR = r'amdhsa_next_free_sgpr'
 NEXT_FREE_VGPR = r'amdhsa_next_free_vgpr'
-AGPR_OFFSET = r'accum_offset'
+AGPR_OFFSET = r'amdhsa_accum_offset'
 
 KERNARG_SIZE = r'amdhsa_kernarg_size'
 LDS_SIZE = r'amdhsa_group_segment_fixed_size'
 PRIVATE_SIZE = r'amdhsa_private_segment_fixed_size'
+USER_SGPR_COUNT = r'amdhsa_user_sgpr_count'
 
 SYSTEM_SGPR_WORKGROUP_ID = r'amdhsa_system_sgpr_workgroup_id_'
 
@@ -360,12 +361,14 @@ def emit_modified_kernel_epilogue(kernel_metadata_dict, host_kernel, kernel_epil
   # - Modify kernarg size on the fused kernel
   # - Modify LDS size on the fused kernel
   # - Modify private size on the fused kernel
+  # - Modify USER SGPR count
   done_next_free_vgpr = False
   done_next_free_sgpr = False
   done_agpr_offset = False
   done_kernarg_size = False
   done_group_segment_fixed_size = False
   done_private_segment_fixed_size = False
+  done_user_sgpr_count = False
   reach_end_of_metadata = False
   modified_kernel_epilogue_list = []
   for line in kernel_epilogue_list:
@@ -373,7 +376,7 @@ def emit_modified_kernel_epilogue(kernel_metadata_dict, host_kernel, kernel_epil
     if m is not None:
       reach_end_of_metadata = True
 
-    if reach_end_of_metadata == False and (done_next_free_vgpr == False or done_next_free_sgpr == False or done_kernarg_size == False or done_group_segment_fixed_size == False or done_private_segment_fixed_size == False or done_agpr_offset == False):
+    if reach_end_of_metadata == False and (done_next_free_vgpr == False or done_next_free_sgpr == False or done_kernarg_size == False or done_group_segment_fixed_size == False or done_private_segment_fixed_size == False or done_agpr_offset == False or done_user_sgpr_count == False):
       m = re.search(KERNEL_METADATA_ENTRY_REGEX, line)
       if m is not None:
         if m.group(1) == NEXT_FREE_VGPR:
@@ -396,6 +399,9 @@ def emit_modified_kernel_epilogue(kernel_metadata_dict, host_kernel, kernel_epil
           agpr_offset = kernel_metadata_dict[host_kernel].get(AGPR_OFFSET)
           agpr_offset = 0 if agpr_offset is None else agpr_offset
           modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(agpr_offset))
+        elif m.group(1) == USER_SGPR_COUNT:
+          done_user_sgpr_count = True
+          modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(kernel_metadata_dict[host_kernel][USER_SGPR_CP_COUNT]))
         else:
           modified_kernel_epilogue_list.append(line.rstrip())
       else:
