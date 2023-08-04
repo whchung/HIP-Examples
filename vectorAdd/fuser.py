@@ -314,6 +314,9 @@ def merge_resource_allocation(kernel_metadata_dict, host_kernel, guest_kernel):
   # Retrieve AGPR offset on guest kernel
   guest_agpr_offset = kernel_metadata_dict[guest_kernel].get(AGPR_OFFSET)
   guest_agpr_offset = 0 if guest_agpr_offset is None else guest_agpr_offset
+  # XXX. FIX guest_agpr_offset.
+  if abs(guest_agpr_offset - guest_next_free_vgpr) > 4:
+    guest_agpr_offset = guest_next_free_vgpr
   
   # Manipulate host kernel, modify metadata on kernarg segment size
   host_kernarg_size = kernel_metadata_dict[host_kernel][KERNARG_SIZE]
