@@ -40,6 +40,7 @@ FLAT_SCRATCH_INIT_INDEX = 5
 
 NEXT_FREE_SGPR = r'amdhsa_next_free_sgpr'
 NEXT_FREE_VGPR = r'amdhsa_next_free_vgpr'
+AGPR_OFFSET = r'accum_offset'
 
 KERNARG_SIZE = r'amdhsa_kernarg_size'
 LDS_SIZE = r'amdhsa_group_segment_fixed_size'
@@ -305,6 +306,14 @@ def merge_resource_allocation(kernel_metadata_dict, host_kernel, guest_kernel):
   # Retrieve next free SGPR / VGPR on guest kernel
   guest_next_free_sgpr = kernel_metadata_dict[guest_kernel][NEXT_FREE_SGPR]
   guest_next_free_vgpr = kernel_metadata_dict[guest_kernel][NEXT_FREE_VGPR]
+
+  # Retrieve AGPR offset on host kernel
+  host_agpr_offset = kernel_metadata_dict[host_kernel].get(AGPR_OFFSET)
+  host_agpr_offset = 0 if host_agpr_offset is None else host_agpr_offset
+
+  # Retrieve AGPR offset on guest kernel
+  guest_agpr_offset = kernel_metadata_dict[guest_kernel].get(AGPR_OFFSET)
+  guest_agpr_offset = 0 if guest_agpr_offset is None else guest_agpr_offset
   
   # Manipulate host kernel, modify metadata on kernarg segment size
   host_kernarg_size = kernel_metadata_dict[host_kernel][KERNARG_SIZE]
@@ -320,11 +329,13 @@ def merge_resource_allocation(kernel_metadata_dict, host_kernel, guest_kernel):
     kernel_metadata_dict[host_kernel][PRIVATE_SIZE] = guest_private_size
 
   # Maniuplate host kernel, modify metadata on SGPR/VGPR usage
-  # TBD: Manipulate host kernel, modify metadata on AGPR usage
   if guest_next_free_sgpr > host_next_free_sgpr:
     kernel_metadata_dict[host_kernel][NEXT_FREE_SGPR] = guest_next_free_sgpr
   if guest_next_free_vgpr > host_next_free_vgpr:
     kernel_metadata_dict[host_kernel][NEXT_FREE_VGPR] = guest_next_free_vgpr
+  # Manipulate host kernel, modify metadata on AGPR usage
+  if guest_agpr_offset > host_agpr_offset:
+    kernel_metadata_dict[host_kernel][AGPR_OFFSET] = guest_agpr_offset
 
 def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kernel, kernel_prologue_list, kernel_epilogue_list, guest_kernel_is_from_binary = False):
 
