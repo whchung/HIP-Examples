@@ -339,6 +339,24 @@ def merge_resource_allocation(kernel_metadata_dict, host_kernel, guest_kernel):
   if guest_agpr_offset > host_agpr_offset:
     kernel_metadata_dict[host_kernel][AGPR_OFFSET] = guest_agpr_offset
 
+def host_peephole_modification(host_kernel_code):
+  # Manipulate host kernel, disable s_endpgm
+  for line_number in range(len(host_kernel_code)):
+    line = host_kernel_code[line_number]
+    m = re.search(r'^[ \t]+s_endpgm', line)
+    if m is not None:
+      host_kernel_code[line_number] = "\t;s_endpgm"
+  return host_kernel_code
+
+def guest_peephold_modification(guest_kernel_code):
+  # Manipulate guest kernel, rename BBs
+  for line_number in range(len(guest_kernel_code)):
+    line = guest_kernel_code[line_number]
+    m = re.search(r'(.*)BB(\d+)_(\d+)(.*)', line)
+    if m is not None:
+      guest_kernel_code[line_number] = m.group(1) + r'FUSED_BB' + m.group(2) + '_' + m.group(3) + m.group(4)
+  return guest_kernel_code
+
 def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kernel, kernel_prologue_list, kernel_epilogue_list, guest_kernel_is_from_binary = False):
 
   # Anaylsis ABI features
@@ -407,22 +425,13 @@ def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kerne
       modified_kernel_epilogue_list.append(line.rstrip())
   kernel_epilogue_list = modified_kernel_epilogue_list
   
-  # Manipulate host kernel, disable s_endpgm
-  for line_number in range(len(kernel_code_dict[host_kernel])):
-    line = kernel_code_dict[host_kernel][line_number]
-    m = re.search(r'^[ \t]+s_endpgm', line)
-    if m is not None:
-      kernel_code_dict[host_kernel][line_number] = "\t;s_endpgm"
+  # Peephole modification for host kernel
+  kernel_code_dict[host_kernel] = host_peephole_modification(kernel_code_dict[host_kernel])
   
   # Skip renaming BBs if guest kernel is extracted from binary.
   if guest_kernel_is_from_binary != True:
-    # Manipulate guest kernel, rename BBs
-    for line_number in range(len(kernel_code_dict[guest_kernel])):
-      line = kernel_code_dict[guest_kernel][line_number]
-      m = re.search(r'(.*)BB(\d+)_(\d+)(.*)', line)
-      if m is not None:
-        kernel_code_dict[guest_kernel][line_number] = m.group(1) + r'FUSED_BB' + m.group(2) + '_' + m.group(3) + m.group(4)
-  
+    kernel_code_dict[guest_kernel] = guest_peephold_modification(kernel_code_dict[guest_kernel])
+
   # TBD: global sync logic between host kernel and guest kernel
   
   # Start fusion
