@@ -198,13 +198,12 @@ def merge_abi_features(kernel_metadata_dict, host_kernel, guest_kernel):
                             ("workgroup_id_x", "amdhsa_system_sgpr_"), \
                             ("workgroup_id_y", "amdhsa_system_sgpr_"), \
                             ("workgroup_id_z", "amdhsa_system_sgpr_")]:
+    # _used, _overriden will be computed by liveness analysis
+    # only modify metadata fields and registers used
     kernel_metadata_dict[host_kernel][prefix + feature] = kernel_metadata_dict[guest_kernel][prefix + feature]
     guest_registers = kernel_metadata_dict[guest_kernel].get(feature)
     if guest_registers is not None:
       kernel_metadata_dict[host_kernel][feature] = guest_registers
-    guest_overriden = kernel_metadata_dict[guest_kernel].get(feature + "_overriden")
-    if guest_overriden is not None:
-      kernel_metadata_dict[host_kernel][feature + "_overriden"] = guest_overriden
 
   # Merge metadta regarding to the total SGPRs set by CP and ADC
   kernel_metadata_dict[host_kernel][USER_SGPR_CP_COUNT] = kernel_metadata_dict[guest_kernel][USER_SGPR_CP_COUNT]
@@ -253,7 +252,7 @@ def emit_context_save_restore_logic(kernel_metadata_dict, host_kernel, guest_ker
 
   # Produce logic to preserve SGPR for a ROCm ABI feature
   for feature in ["private_segment_buffer", "dispatch_ptr", "queue_ptr", "kernarg_segment_ptr", "flat_scratch_init"]:
-    # Only produce kernarg segment pointer preserving logic in case:
+    # Only produce context save/restore logic in case:
     # - The registers are overwritten in the host
     # - The registers are declared in the guest
     # - The registers are used in the guest

@@ -118,7 +118,7 @@ def deduce_descriptor(liveness_dict, descriptor_dict):
   sgpr_initialized_by_cp = []
   for sgpr in range(user_sgpr_cp_count):
     l = liveness_dict.get('s' + str(sgpr))
-    if l is not None and (l[0] > 0) and (l[2] == -1 or l[0] < l[2]):
+    if l is not None and (l[0] >= 0) and (l[2] == -1 or l[0] < l[2]):
       sgpr_initialized_by_cp.append(sgpr)
 
   #print("CP: ", sgpr_initialized_by_cp)
