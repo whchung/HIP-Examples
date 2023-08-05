@@ -4,7 +4,8 @@ ifeq (,$(HIP_PATH))
 endif
 
 HIPCC=$(HIP_PATH)/bin/hipcc
-HIP_LIBRARY=~/projects/hipamd/build/lib/libamdhip64.so
+HIP_LIBRARY=/home/jack/projects/hipamd/build/lib/libamdhip64.so
+RCCL_LIBRARY=/home/jack/projects/rccl/build/librccl.so
 
 FILENAME = vectoradd_hip
 SOURCES = $(FILENAME).cpp
@@ -18,30 +19,33 @@ EXECUTABLE=./$(FILENAME).exe
 
 all: $(EXECUTABLE) test
 
-CXXFLAGS =-O3 -save-temps
+CXXFLAGS =-O3 -save-temps -I/usr/include/x86_64-linux-gnu/mpich
 
 CXX=$(HIPCC)
 
 
 $(EXECUTABLE): $(OBJECTS) 
-	$(HIPCC) $(OBJECTS) -o $@
+	$(HIPCC) $(OBJECTS) -o $@ -lmpich -L~/projects/rccl/build -lrccl
 
 fuse: $(EXECUTABLE) test
 	@echo "\n==== Kernel Fusion ====\n"
-	./fuser.py $(FILENAME)-hip-amdgcn-amd-amdhsa-$(GFXARCH).s manifest > fused_manifest.txt
+	#./fuser.py $(FILENAME)-hip-amdgcn-amd-amdhsa-$(GFXARCH).s manifest > fused_manifest.txt
 	./fuser.py $(FILENAME)-hip-amdgcn-amd-amdhsa-$(GFXARCH).s > fused.s
 	./assemble.sh
-	AMD_KERNEL_FUSION=1 AMD_KERNEL_FUSION_HOST=`head -1 fused_manifest.txt` AMD_KERNEL_FUSION_GUEST=`tail -1 fused_manifest.txt` ROC_USE_FGS_KERNARG=0 LD_PRELOAD=$(HIP_LIBRARY) ./fused.exe
-	@AMD_KERNEL_FUSION=1 AMD_LOG_LEVEL=4 AMD_KERNEL_FUSION_HOST=`head -1 fused_manifest.txt` AMD_KERNEL_FUSION_GUEST=`tail -1 fused_manifest.txt` ROC_USE_FGS_KERNARG=0 LD_PRELOAD=$(HIP_LIBRARY) ./fused.exe 1>/dev/null 2>run.log
-	@echo "Number of AQL packets submitted: `grep kernel_obj run.log | wc -l`"
-	@rm -f run.log
+	#AMD_KERNEL_FUSION=1 AMD_KERNEL_FUSION_HOST=`head -1 fused_manifest.txt` AMD_KERNEL_FUSION_GUEST=`tail -1 fused_manifest.txt` ROC_USE_FGS_KERNARG=0 LD_PRELOAD=$(HIP_LIBRARY) ./fused.exe
+	mpirun.mpich -np 2 -env AMD_KERNEL_FUSION=1 -env AMD_KERNEL_FUSION_HOST=_Z7kernel1PKfS0_Pf -env AMD_KERNEL_FUSION_GUEST=_Z42ncclKernel_SendRecv_RING_SIMPLE_Sum_int8_tP11ncclDevCommmP8ncclWork -env ROC_USE_FGS_KERNARG=0 -env LD_PRELOAD=$(HIP_LIBRARY):$(RCCL_LIBRARY) ./fused.exe
+	#@AMD_KERNEL_FUSION=1 AMD_LOG_LEVEL=4 AMD_KERNEL_FUSION_HOST=`head -1 fused_manifest.txt` AMD_KERNEL_FUSION_GUEST=`tail -1 fused_manifest.txt` ROC_USE_FGS_KERNARG=0 LD_PRELOAD=$(HIP_LIBRARY) ./fused.exe 1>/dev/null 2>run.log
+	#@echo "Number of AQL packets submitted: `grep kernel_obj run.log | wc -l`"
+	#@rm -f run.log
 
 test: $(EXECUTABLE)
 	@echo "\n==== Back-to-back Kernels  ====\n"
-	ROC_USE_FGS_KERNARG=0 LD_PRELOAD=$(HIP_LIBRARY) $(EXECUTABLE)
-	@AMD_LOG_LEVEL=4 ROC_USE_FGS_KERNARG=0 LD_PRELOAD=$(HIP_LIBRARY) $(EXECUTABLE) 1>/dev/null 2>run.log
-	@echo "Number of AQL packets submitted: `grep kernel_obj run.log | wc -l`"
-	@rm -f run.log
+	#ROC_USE_FGS_KERNARG=0 LD_PRELOAD=$(HIP_LIBRARY) $(EXECUTABLE)
+	mpirun.mpich -np 2 -env ROC_USE_FGS_KERNARG=0 $(EXECUTABLE)
+	#@AMD_LOG_LEVEL=4 ROC_USE_FGS_KERNARG=0 LD_PRELOAD=$(HIP_LIBRARY) $(EXECUTABLE) 1>/dev/null 2>run.log
+	#@AMD_LOG_LEVEL=4 ROC_USE_FGS_KERNARG=0 $(EXECUTABLE) 1>/dev/null 2>run.log
+	#@echo "Number of AQL packets submitted: `grep kernel_obj run.log | wc -l`"
+	#@rm -f run.log
 
 clean:
 	@rm -f $(EXECUTABLE)

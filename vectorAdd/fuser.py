@@ -316,7 +316,7 @@ def merge_resource_allocation(kernel_metadata_dict, host_kernel, guest_kernel):
   guest_agpr_offset = 0 if guest_agpr_offset is None else guest_agpr_offset
   # XXX. FIX guest_agpr_offset.
   if abs(guest_agpr_offset - guest_next_free_vgpr) > 4:
-    guest_agpr_offset = guest_next_free_vgpr
+    guest_agpr_offset = (guest_next_free_vgpr + 4) // 4 * 4
   
   # Manipulate host kernel, modify metadata on kernarg segment size
   host_kernarg_size = kernel_metadata_dict[host_kernel][KERNARG_SIZE]
@@ -727,5 +727,5 @@ if __name__ == "__main__":
     # - context restore logic
     # - guest kernel logic
 
-    fuse_source_with_source(HOST_KERNEL, GUEST_KERNEL)
-    #fuse_source_with_dumper(HOST_KERNEL, RCCL_KERNEL_NAME)
+    #fuse_source_with_source(HOST_KERNEL, GUEST_KERNEL)
+    fuse_source_with_dumper(HOST_KERNEL, RCCL_KERNEL_NAME)

@@ -26,6 +26,10 @@ THE SOFTWARE.
 #include<iostream>
 #include "hip/hip_runtime.h"
 
+#include <mpi.h>
+#include <rccl.h>
+#include <unistd.h>
+
 #ifndef FUSED
 #define FUSED (0)
 #endif
@@ -38,7 +42,7 @@ THE SOFTWARE.
 #endif
 
 
-#define WIDTH     1024
+#define WIDTH     8
 #define HEIGHT    1024
 
 #define NUM       (WIDTH*HEIGHT)
@@ -47,6 +51,9 @@ THE SOFTWARE.
 
 #define THREADS_PER_BLOCK_X  256
 
+#if (NUM / THREADS_PER_BLOCK_X != 32)
+#error "Incorrect workgroup number"
+#endif
 __global__ void 
 kernel1(const float* __restrict__ a, const float* __restrict__ b, float* __restrict__ c
                 )
@@ -66,8 +73,26 @@ kernel2(const float* __restrict__ c, float* __restrict__ d)
 
 using namespace std;
 
+ncclComm_t nccl_comm;
+
 int main() {
-  
+ 
+  // Init MPI
+  int comm_rank, comm_size;
+  MPI_Init(NULL, NULL);
+  MPI_Comm_rank(MPI_COMM_WORLD, &comm_rank);
+  MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
+  printf("rank %d, size %d\n", comm_rank, comm_size);
+
+  // Init RCCL
+  ncclUniqueId nccl_id;
+  if (comm_rank == 0) {
+    ncclGetUniqueId(&nccl_id);
+  }
+  MPI_Bcast(&nccl_id, sizeof(ncclUniqueId), MPI_BYTE, 0, MPI_COMM_WORLD);
+  hipSetDevice(comm_rank);
+  ncclCommInitRank(&nccl_comm, comm_size, nccl_id, comm_rank);
+
   float* hostA;
   float* hostB;
   float* hostC;
@@ -117,6 +142,13 @@ int main() {
   HIP_ASSERT(hipMemcpy(deviceA, hostA, NUM*sizeof(float), hipMemcpyHostToDevice));
   HIP_ASSERT(hipMemcpy(deviceB, hostB, NUM*sizeof(float), hipMemcpyHostToDevice));
 
+  // Inititalize data for all reduce.
+  const int all_reduce_size = 5120;
+  const int type_size = 4; // float32
+  void *send_buffer, *recv_buffer;
+  hipMalloc(&send_buffer, all_reduce_size * type_size);
+  hipMalloc(&recv_buffer, all_reduce_size * type_size);
+
   // warm-up
   for (i = 0; i < WARMUP; ++i) {
     hipLaunchKernelGGL(kernel1,
@@ -126,18 +158,26 @@ int main() {
                     deviceA ,deviceB ,deviceC
                     );
 
+    ncclGroupStart();
+    ncclAllReduce(send_buffer, send_buffer, all_reduce_size, ncclFloat32, ncclSum, nccl_comm, NULL);
+    ncclGroupEnd();
+#if 0
     hipLaunchKernelGGL(kernel2,
                     dim3(WIDTH*HEIGHT/THREADS_PER_BLOCK_X),
                     dim3(THREADS_PER_BLOCK_X),
                     0, 0,
                     deviceC ,deviceD);
+#endif
   }
+#if 0
   HIP_ASSERT(hipMemcpy(deviceC, hostC, NUM*sizeof(float), hipMemcpyHostToDevice));
   HIP_ASSERT(hipMemcpy(deviceD, hostD, NUM*sizeof(float), hipMemcpyHostToDevice));
+#endif
 
-
+  usleep(500);
   HIP_ASSERT(hipEventRecord(startEvent, nullptr));
-
+ 
+  MPI_Barrier(MPI_COMM_WORLD);
   for (i = 0; i < ROUNDS; ++i) {
     hipLaunchKernelGGL(kernel1, 
                     dim3(WIDTH*HEIGHT/THREADS_PER_BLOCK_X),
@@ -145,13 +185,18 @@ int main() {
                     0, 0,
                     deviceA ,deviceB ,deviceC
                     );
-
+ 
+    ncclGroupStart();
+    ncclAllReduce(send_buffer, send_buffer, all_reduce_size, ncclFloat32, ncclSum, nccl_comm, NULL);
+    ncclGroupEnd();
+#if 0
     // kernel2 will be fused with vectoradd_float
     hipLaunchKernelGGL(kernel2, 
                     dim3(WIDTH*HEIGHT/THREADS_PER_BLOCK_X),
                     dim3(THREADS_PER_BLOCK_X),
                     0, 0,
                     deviceC ,deviceD);
+#endif
   }
 
   HIP_ASSERT(hipEventRecord(stopEvent, nullptr));
@@ -163,24 +208,28 @@ int main() {
   // verify the results
   errors = 0;
   for (i = 0; i < NUM; i++) {
-    if (hostD[i] != ((hostA[i] + hostB[i]) * 3)) {
+    if (hostC[i] != hostA[i] + hostB[i]) {
       errors++;
     }
   }
 
+#if 0
   for (i = 0; i < 10; ++i) {
-      printf("A: %6.3f, B: %6.3f, C: %6.3f, D: %6.3f\n", hostA[i], hostB[i], hostC[i], hostD[i]);
+      printf("A: %6.3f, B: %6.3f, C: %6.3f\n", hostA[i], hostB[i], hostC[i]);
   }
+#endif
   float ms = 0.0f;
   HIP_ASSERT(hipEventElapsedTime(&ms, startEvent, stopEvent));
   printf("Total time: %6.3f ms\n", ms);
   printf("Per-round time: %6.3f us\n", ms / ROUNDS * 1000.0f);
 
+#if 0
   if (errors!=0) {
     printf("FAILED: %d errors\n",errors);
   } else {
       printf ("PASSED!\n");
   }
+#endif
 
   HIP_ASSERT(hipEventDestroy(startEvent));
   HIP_ASSERT(hipEventDestroy(stopEvent));
@@ -195,7 +244,12 @@ int main() {
   free(hostC);
   free(hostD);
 
+  hipFree(send_buffer);
+  hipFree(recv_buffer);
+
   //hipResetDefaultAccelerator();
+
+  ncclCommDestroy(nccl_comm);
 
   return errors;
 }

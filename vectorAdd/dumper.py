@@ -185,13 +185,17 @@ def get_isa(code_object_filename, symbol_name):
 
 def main():
   code_object_filename = get_code_object(LIBRCCL_PATH)
+  print(code_object_filename)
   [descriptor_address, descriptor_length, kernel_address, kernel_length] = get_symbol(code_object_filename, RCCL_KERNEL_NAME)
+  if (descriptor_address == 0 or descriptor_length == 0 or kernel_address == 0 or kernel_length == 0):
+    print("Error fetching code")
+    exit(-1)
 
   descriptor_dict = get_descriptor(code_object_filename, descriptor_address, descriptor_length)
 
   isa = get_isa(code_object_filename, RCCL_KERNEL_NAME)
-  #for line in isa:
-  #  print(line)
+  for line in isa:
+    print(line)
   print(descriptor_dict)
 
   liveness_dict = liveness.liveness_analysis(isa)
