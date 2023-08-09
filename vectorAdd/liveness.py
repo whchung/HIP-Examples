@@ -1,4 +1,4 @@
-#!/usr/bin/python3.7
+#!/usr/bin/python3
 
 import re
 
@@ -259,7 +259,7 @@ def deduce_descriptor(liveness_dict, descriptor_dict):
   for index in range(user_sgpr_adc_count):
     sgpr = user_sgpr_cp_count + index
     l = liveness_dict.get('s' + str(sgpr))
-    if l is not None and (l[0] > 0) and (l[2] == -1 or l[0] < l[2]):
+    if l is not None and (l[0] >= 0) and (l[2] == -1 or l[0] < l[2]):
       sgpr_initialized_by_adc.append(sgpr)
       if index == 0:
         descriptor_dict["workgroup_id_x"] = [sgpr]
@@ -289,7 +289,7 @@ def deduce_descriptor(liveness_dict, descriptor_dict):
 INPUT_FILE = "rccl.s"
 def main():
   input_file = open(INPUT_FILE, "r")
-  kernel_source = input_file.read()
+  kernel_source = input_file.read().splitlines()
   liveness_dict = liveness_analysis(kernel_source)
 
   [max_sgpr, max_vgpr, max_agpr] = get_register_usage(liveness_dict)
@@ -297,9 +297,9 @@ def main():
   print("VGPR: " + str(max_vgpr))
   print("AGPR: " + str(max_agpr))
 
-  for sgpr in range(12):
+  for sgpr in range(20):
     liveness = liveness_dict.get('s' + str(sgpr))
-    if liveness is not None and (liveness[0] > 0) and (liveness[2] == -1 or liveness[0] < liveness[2]):
+    if liveness is not None and (liveness[0] >= 0) and (liveness[2] == -1 or liveness[0] < liveness[2]):
       if liveness[2] == -1:
         # declared + used
         print("SGPR" + str(sgpr) + "(*): ", liveness_dict['s' + str(sgpr)])
@@ -309,7 +309,7 @@ def main():
 
   for vgpr in range(3):
     liveness = liveness_dict.get('v' + str(vgpr))
-    if liveness is not None and (liveness[0] > 0) and (liveness[2] == -1 or liveness[0] < liveness[2]):
+    if liveness is not None and (liveness[0] >= 0) and (liveness[2] == -1 or liveness[0] < liveness[2]):
       if liveness[2] == -1:
         # declared + used
         print("VGPR" + str(vgpr) + ":(*) ", liveness_dict['v' + str(vgpr)])
