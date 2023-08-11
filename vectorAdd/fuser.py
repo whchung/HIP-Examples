@@ -46,6 +46,7 @@ KERNARG_SIZE = r'amdhsa_kernarg_size'
 LDS_SIZE = r'amdhsa_group_segment_fixed_size'
 PRIVATE_SIZE = r'amdhsa_private_segment_fixed_size'
 USER_SGPR_COUNT = r'amdhsa_user_sgpr_count'
+XNACK_MASK = r'amdhsa_reserve_xnack_mask'
 
 SYSTEM_SGPR_WORKGROUP_ID = r'amdhsa_system_sgpr_workgroup_id_'
 SYSTEM_SGPR_PRIVATE_SEGMENT_WAVEFRONT_OFFSET = r'amdhsa_system_sgpr_private_segment_wavefront_offset'
@@ -366,13 +367,26 @@ def merge_resource_allocation(kernel_metadata_dict, host_kernel, guest_kernel):
   if guest_agpr_offset > host_agpr_offset:
     kernel_metadata_dict[host_kernel][AGPR_OFFSET] = guest_agpr_offset
 
+def kernel_prologue_peephole_modification(kernel_prologue_list):
+  # Manipulate kernel prologue, modify .amdgcn_target
+  for line_number in range(len(kernel_prologue_list)):
+    line = kernel_prologue_list[line_number]
+    m = re.search(r'amdgcn_target', line)
+    if m is not None:
+      kernel_prologue_list[line_number] = re.sub('-gfx90a"', '-gfx90a:xnack-"', line)
+      break
+  return kernel_prologue_list
+
 def host_peephole_modification(host_kernel_code):
-  # Manipulate host kernel, disable s_endpgm
+  # Manipulate host kernel
+  # Disable s_endpgm
+  # Add s_waitcnt vmcnt(0) lgkmcnt(0)
   for line_number in range(len(host_kernel_code)):
     line = host_kernel_code[line_number]
     m = re.search(r'^[ \t]+s_endpgm', line)
     if m is not None:
       host_kernel_code[line_number] = "\t;s_endpgm"
+      host_kernel_code.insert(line_number + 1, "\ts_waitcnt vmcnt(0) lgkmcnt(0)")
   return host_kernel_code
 
 def guest_peephold_modification(guest_kernel_code):
@@ -391,6 +405,7 @@ def emit_modified_kernel_epilogue(kernel_metadata_dict, host_kernel, kernel_epil
   # - Modify LDS size on the fused kernel
   # - Modify private size on the fused kernel
   # - Modify USER SGPR count
+  # - Modify .amdhsa_reserve_xnack_mask
   done_next_free_vgpr = False
   done_next_free_sgpr = False
   done_agpr_offset = False
@@ -431,12 +446,20 @@ def emit_modified_kernel_epilogue(kernel_metadata_dict, host_kernel, kernel_epil
         elif m.group(1) == USER_SGPR_COUNT:
           done_user_sgpr_count = True
           modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(kernel_metadata_dict[host_kernel][USER_SGPR_CP_COUNT]))
+        elif m.group(1) == XNACK_MASK:
+          done_xnack_mask = True
+          modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + '0')
         else:
           modified_kernel_epilogue_list.append(line.rstrip())
       else:
         modified_kernel_epilogue_list.append(line.rstrip())
     else:
-      modified_kernel_epilogue_list.append(line.rstrip())
+      # Need to clear XNACK mask on every metadata
+      m = re.search(KERNEL_METADATA_ENTRY_REGEX, line)
+      if m is not None and m.group(1) == XNACK_MASK:
+        modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + '0')
+      else:
+        modified_kernel_epilogue_list.append(line.rstrip())
   kernel_epilogue_list = modified_kernel_epilogue_list
 
   # Emit merged metadata on ROCm ABI features
@@ -507,6 +530,9 @@ def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kerne
   
   # Peephole modification for host kernel
   kernel_code_dict[host_kernel] = host_peephole_modification(kernel_code_dict[host_kernel])
+
+  # Peephole modification for kernel prologue
+  kernel_prologue_list = kernel_prologue_peephole_modification(kernel_prologue_list)
   
   # Skip renaming BBs if guest kernel is extracted from binary.
   if guest_kernel_is_from_binary != True:
