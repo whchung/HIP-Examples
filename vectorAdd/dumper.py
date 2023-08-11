@@ -12,7 +12,7 @@ LLVM_OBJDUMP_PATH = "/opt/rocm/llvm/bin/llvm-objdump"
 
 GFXARCH_REGEX = r'^.*gfx90a:xnack-[ \t]+(.+)'
 
-S_GETPC_REGEX = r'^[ \t]+s_getpc_b64 s\[([0-9]+):([0-9]+)\]'
+S_GETPC_REGEX = r'^[ \t]+s_getpc_b64 s\[([0-9]+):([0-9]+)\][ \t]+// ([0-9A-F]+):'
 
 LIBRCCL_PATH = "/home/jack/projects/rccl/build/librccl.so"
 RCCL_KERNEL_NAME = "_Z42ncclKernel_SendRecv_RING_SIMPLE_Sum_int8_tP11ncclDevCommmP8ncclWork"
@@ -243,14 +243,57 @@ def main():
   #print(descriptor_dict)
 
   symbol_table = get_symbol_table(code_object_filename)
+  print("Symbol Table:")
   for symbol in symbol_table:
-    print(symbol, symbol_table[symbol])
+    address = symbol_table[symbol][0]
+    length = symbol_table[symbol][1]
+    print(symbol, hex(address), hex(length))
 
-  #for line in isa:
-  #  m = re.search(S_GETPC_REGEX, line)
-  #  if m is not None:
-  #    print(line)
+  print("\nCall graph analysis for " + RCCL_KERNEL_NAME)
+  follow_call_graph(code_object_filename, RCCL_KERNEL_NAME, isa, symbol_table)
 
+def follow_call_graph(code_object_filename, function_name, isa, symbol_table):
+  found_relocation_info = False
+  reg1 = 0
+  reg2 = 0
+  call_address = 0
+  for line in isa:
+    if found_relocation_info == False:
+      m = re.search(S_GETPC_REGEX, line)
+      if m is not None:
+        # Found s_getpc_b64
+        # Log registers used, and address
+        found_relocation_info = True
+        reg1 = int(m.group(1))
+        reg2 = int(m.group(2))
+    else:
+      m = re.search(r'^[ \t]+s_addc?_u32 s([0-9]+), s([0-9]+), (0x?[0-9a-f]+|-?[0-9]+)[ \t]+// ([0-9A-F]+):', line)
+      if m is not None:
+        #print(line)
+        assert int(m.group(1)) == int(m.group(2))
+        reg = int(m.group(1))
+        if reg == reg1:
+          # Fetch offset
+          offset = int(m.group(3), 16)
+          #print(hex(offset))
+          address = int(m.group(4), 16)
+          #print(hex(address))
+          call_address = address + offset
+          #print(hex(address + offset))
+        elif reg == reg2:
+          # Understand direction
+          offset = int(m.group(3))
+          if offset < 0:
+            call_address -= 0x100000000
+          found_relocation_info = False
+  if call_address != 0:
+    #print(hex(call_address))
+    for symbol in symbol_table:
+      symbol_address = symbol_table[symbol][0]
+      if call_address == symbol_address:
+        print(function_name, "->",  symbol)
+        isa = get_isa(code_object_filename, symbol)
+        follow_call_graph(code_object_filename, symbol, isa, symbol_table)
 
 if __name__ == "__main__":
   main()
