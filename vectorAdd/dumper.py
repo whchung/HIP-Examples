@@ -253,10 +253,17 @@ def main():
   print("")
 
   call_graph = [RCCL_KERNEL_NAME]
-  call_graph = follow_call_graph(code_object_filename, RCCL_KERNEL_NAME, isa, symbol_table, call_graph, True)
+  call_graph_isa = [isa]
+  [call_graph, call_graph_isa] = follow_call_graph(code_object_filename, RCCL_KERNEL_NAME, isa, symbol_table, call_graph, call_graph_isa, True)
   print("All symbols used by " + RCCL_KERNEL_NAME + ": ", call_graph)
+  for (symbol_name, symbol_isa) in zip(call_graph, call_graph_isa):
+    print(symbol_name)
+    print("===============================")
+    for line in symbol_isa:
+      print(line)
+    print("")
 
-def follow_call_graph(code_object_filename, function_name, isa, symbol_table, call_graph, modify_on_the_fly = False):
+def follow_call_graph(code_object_filename, function_name, isa, symbol_table, call_graph, call_graph_isa, modify_on_the_fly = False):
   print("Call graph analysis for: " + function_name)
   found_relocation_info = False
   reg1 = -1
@@ -327,6 +334,8 @@ def follow_call_graph(code_object_filename, function_name, isa, symbol_table, ca
           # Found one callee, registered it. Try find another one.
           found_relocation_info = False
 
+  call_graph_isa.append(isa)
+
   # Recursively walk into each of the callee
   if len(callee_address_list) > 0:
     #print(hex(call_address))
@@ -338,9 +347,9 @@ def follow_call_graph(code_object_filename, function_name, isa, symbol_table, ca
           if symbol not in call_graph:
             call_graph.append(symbol)
             isa = get_isa(code_object_filename, symbol)
-            call_graph = follow_call_graph(code_object_filename, symbol, isa, symbol_table, call_graph, modify_on_the_fly)
+            [call_graph, call_graph_isa] = follow_call_graph(code_object_filename, symbol, isa, symbol_table, call_graph, call_graph_isa, modify_on_the_fly)
 
-  return call_graph
+  return [call_graph, call_graph_isa]
 
 if __name__ == "__main__":
   main()
