@@ -13,6 +13,7 @@ LLVM_OBJDUMP_PATH = "/opt/rocm/llvm/bin/llvm-objdump"
 GFXARCH_REGEX = r'^.*gfx90a:xnack-[ \t]+(.+)'
 
 S_GETPC_REGEX = r'^[ \t]+s_getpc_b64 s\[([0-9]+):([0-9]+)\][ \t]+// ([0-9A-F]+):'
+MODIFY_PC_REGEX = r'^[ \t]+s_addc?_u32 s([0-9]+), s([0-9]+), (0x?[0-9a-f]+|-?[0-9]+)[ \t]+// ([0-9A-F]+):'
 
 LIBRCCL_PATH = "/home/jack/projects/rccl/build/librccl.so"
 RCCL_KERNEL_NAME = "_Z42ncclKernel_SendRecv_RING_SIMPLE_Sum_int8_tP11ncclDevCommmP8ncclWork"
@@ -248,19 +249,25 @@ def main():
     address = symbol_table[symbol][0]
     length = symbol_table[symbol][1]
     print(symbol, hex(address), hex(length))
+  print("")
 
-  print("\nCall graph analysis for " + RCCL_KERNEL_NAME)
   call_graph = [RCCL_KERNEL_NAME]
-  call_graph = follow_call_graph(code_object_filename, RCCL_KERNEL_NAME, isa, symbol_table, call_graph)
-  print(call_graph)
+  call_graph = follow_call_graph(code_object_filename, RCCL_KERNEL_NAME, isa, symbol_table, call_graph, True)
+  print("All symbols used by " + RCCL_KERNEL_NAME + ": ", call_graph)
 
-def follow_call_graph(code_object_filename, function_name, isa, symbol_table, call_graph):
+def follow_call_graph(code_object_filename, function_name, isa, symbol_table, call_graph, modify_on_the_fly = False):
+  print("Call graph analysis for: " + function_name)
   found_relocation_info = False
-  reg1 = 0
-  reg2 = 0
+  reg1 = -1
+  reg2 = -1
+  line1 = "" # line contains s_add_u32
+  line2 = "" # line contains s_addc_u32
+  line1_index = -1
+  line2_index = -1
   callee_address = 0
   callee_address_list = []
-  for line in isa:
+  for index in range(len(isa)):
+    line = isa[index]
     if found_relocation_info == False:
       m = re.search(S_GETPC_REGEX, line)
       if m is not None:
@@ -270,7 +277,7 @@ def follow_call_graph(code_object_filename, function_name, isa, symbol_table, ca
         reg1 = int(m.group(1))
         reg2 = int(m.group(2))
     else:
-      m = re.search(r'^[ \t]+s_addc?_u32 s([0-9]+), s([0-9]+), (0x?[0-9a-f]+|-?[0-9]+)[ \t]+// ([0-9A-F]+):', line)
+      m = re.search(MODIFY_PC_REGEX, line)
       if m is not None:
         #print(line)
         assert int(m.group(1)) == int(m.group(2))
@@ -283,6 +290,8 @@ def follow_call_graph(code_object_filename, function_name, isa, symbol_table, ca
           #print(hex(address))
           callee_address = address + offset
           #print(hex(address + offset))
+          line1 = line
+          line1_index = index
         elif reg == reg2:
           # Understand direction
           offset = int(m.group(3))
@@ -290,9 +299,33 @@ def follow_call_graph(code_object_filename, function_name, isa, symbol_table, ca
             callee_address -= 0x100000000
           # Register the address after the direction is known
           callee_address_list.append(callee_address)
+          address = int(m.group(4), 16)
+          line2 = line
+          line2_index = index
+
+          if modify_on_the_fly == True:
+            # Locate symbol
+            for symbol in symbol_table:
+              symbol_address = symbol_table[symbol][0]
+              if callee_address == symbol_address:
+                print("\tCall site identified:")
+                print("\t=====================")
+                print(line1)
+                print(line2)
+                print("")
+                print("\tModify call site from absolute address to relative offset:")
+                print("\t==========================================================")
+                line1_modified = re.sub(r', 0x?[0-9a-f]+', ", " + symbol + "@rel32@lo+4", line1)
+                print(line1_modified)
+                line2_modified = re.sub(r', -?[0-9]+', ", " + symbol + "@rel32@hi+12", line2)
+                print(line2_modified)
+                print("")
+                isa[line1_index] = line1_modified
+                isa[line2_index] = line2_modified
+
           # Found one callee, registered it. Try find another one.
           found_relocation_info = False
-  
+
   # Recursively walk into each of the callee
   if len(callee_address_list) > 0:
     #print(hex(call_address))
@@ -304,7 +337,7 @@ def follow_call_graph(code_object_filename, function_name, isa, symbol_table, ca
           if symbol not in call_graph:
             call_graph.append(symbol)
             isa = get_isa(code_object_filename, symbol)
-            call_graph = follow_call_graph(code_object_filename, symbol, isa, symbol_table, call_graph)
+            call_graph = follow_call_graph(code_object_filename, symbol, isa, symbol_table, call_graph, modify_on_the_fly)
 
   return call_graph
 
