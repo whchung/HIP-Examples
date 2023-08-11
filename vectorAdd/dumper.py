@@ -250,13 +250,16 @@ def main():
     print(symbol, hex(address), hex(length))
 
   print("\nCall graph analysis for " + RCCL_KERNEL_NAME)
-  follow_call_graph(code_object_filename, RCCL_KERNEL_NAME, isa, symbol_table)
+  call_graph = [RCCL_KERNEL_NAME]
+  call_graph = follow_call_graph(code_object_filename, RCCL_KERNEL_NAME, isa, symbol_table, call_graph)
+  print(call_graph)
 
-def follow_call_graph(code_object_filename, function_name, isa, symbol_table):
+def follow_call_graph(code_object_filename, function_name, isa, symbol_table, call_graph):
   found_relocation_info = False
   reg1 = 0
   reg2 = 0
-  call_address = 0
+  callee_address = 0
+  callee_address_list = []
   for line in isa:
     if found_relocation_info == False:
       m = re.search(S_GETPC_REGEX, line)
@@ -278,22 +281,32 @@ def follow_call_graph(code_object_filename, function_name, isa, symbol_table):
           #print(hex(offset))
           address = int(m.group(4), 16)
           #print(hex(address))
-          call_address = address + offset
+          callee_address = address + offset
           #print(hex(address + offset))
         elif reg == reg2:
           # Understand direction
           offset = int(m.group(3))
           if offset < 0:
-            call_address -= 0x100000000
+            callee_address -= 0x100000000
+          # Register the address after the direction is known
+          callee_address_list.append(callee_address)
+          # Found one callee, registered it. Try find another one.
           found_relocation_info = False
-  if call_address != 0:
+  
+  # Recursively walk into each of the callee
+  if len(callee_address_list) > 0:
     #print(hex(call_address))
-    for symbol in symbol_table:
-      symbol_address = symbol_table[symbol][0]
-      if call_address == symbol_address:
-        print(function_name, "->",  symbol)
-        isa = get_isa(code_object_filename, symbol)
-        follow_call_graph(code_object_filename, symbol, isa, symbol_table)
+    for callee_address in callee_address_list:
+      for symbol in symbol_table:
+        symbol_address = symbol_table[symbol][0]
+        if callee_address == symbol_address:
+          #print(function_name, "->",  symbol)
+          if symbol not in call_graph:
+            call_graph.append(symbol)
+            isa = get_isa(code_object_filename, symbol)
+            call_graph = follow_call_graph(code_object_filename, symbol, isa, symbol_table, call_graph)
+
+  return call_graph
 
 if __name__ == "__main__":
   main()
