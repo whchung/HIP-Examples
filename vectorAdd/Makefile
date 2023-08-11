@@ -50,5 +50,5 @@ clean:
 	@rm -f *.o *.co
 	@rm -f $(FILENAME)-*
 	@rm -f $(SOURCES)-*
-	@rm -f fused_manifest.txt fused.s fused.exe
+	@rm -f fused_manifest.txt fused.exe
 	@rm -rf __pycache__
