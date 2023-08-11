@@ -165,20 +165,22 @@ def deduce_descriptor(liveness_dict, descriptor_dict):
     descriptor_dict["flat_scratch_init"] = [10, 11]
   elif user_sgpr_cp_count == 10:
     # private segment buffer is used
-    # dispatch ptr is used
-    # queue ptr is used
+    # either queue ptr or dispatch ptr is used, HAVE TO GUESS
     # kernarg segment ptr is used
+    # either dispatch id or flat scratch init is used, HAVE TO GUESS
     descriptor_dict["amdhsa_user_sgpr_private_segment_buffer"] = 1
-    descriptor_dict["amdhsa_user_sgpr_dispatch_ptr"] = 1
+    descriptor_dict["amdhsa_user_sgpr_dispatch_ptr"] = 0
+    # XXX. TBD. Force guess queue ptr is used
     descriptor_dict["amdhsa_user_sgpr_queue_ptr"] = 1
     descriptor_dict["amdhsa_user_sgpr_kernarg_segment_ptr"] = 1
+    # XXX. TBD. Force guess on the flat scratch init for now.
     descriptor_dict["amdhsa_user_sgpr_dispatch_id"] = 0
-    descriptor_dict["amdhsa_user_sgpr_flat_scratch_init"] = 0
+    descriptor_dict["amdhsa_user_sgpr_flat_scratch_init"] = 1
 
     descriptor_dict["private_segment_buffer"] = [0, 1, 2, 3]
-    descriptor_dict["dispatch_ptr"] = [4, 5]
-    descriptor_dict["queue_ptr"] = [6, 7]
-    descriptor_dict["kernarg_segment_ptr"] = [8, 9]
+    descriptor_dict["queue_ptr"] = [4, 5]
+    descriptor_dict["kernarg_segment_ptr"] = [6, 7]
+    descriptor_dict["flat_scratch_init"] = [8, 9]
   elif user_sgpr_cp_count == 8:
     # private segment buffer is used
     # either dispatch ptr or queue ptr is used, HAVE TO GUESS
@@ -223,7 +225,6 @@ def deduce_descriptor(liveness_dict, descriptor_dict):
     print("Unknown SGPR CP count!")
     exit(-1)
 
-
   # len(sgpr_initialized_by_cp) might be less then user_sgpr_cp_count
   # as some register might be initialized by CP but not used.
 
@@ -248,11 +249,9 @@ def deduce_descriptor(liveness_dict, descriptor_dict):
           descriptor_dict[feature + "_overriden"] = True
         break
 
-  # Understand the number of SGPRs set by ADC from RSRC2
+  # Understand the number of SGPRs set by ADC
   user_sgpr_adc_count = descriptor_dict["amdhsa_system_sgpr_workgroup_id_x"] + descriptor_dict["amdhsa_system_sgpr_workgroup_id_y"] + descriptor_dict["amdhsa_system_sgpr_workgroup_id_z"]
-
   descriptor_dict["user_sgpr_adc_count"] = user_sgpr_adc_count
-  #print("ADC: ", sgpr_initialized_by_adc)
 
   # Identify each SGPR be initialized by ADC
   sgpr_initialized_by_adc = []
@@ -270,19 +269,39 @@ def deduce_descriptor(liveness_dict, descriptor_dict):
       elif index == 2:
         descriptor_dict["workgroup_id_z"] = [sgpr]
         descriptor_dict["workgroup_id_z" + "_used"] = True
+  #print("ADC: ", sgpr_initialized_by_adc)
+
+  # Understand the number of SGPRs set by SPI
+  user_sgpr_spi_count = descriptor_dict["amdhsa_system_sgpr_private_segment_wavefront_offset"]
+  descriptor_dict["user_sgpr_spi_count"] = user_sgpr_spi_count
+
+  # Identify each SGPR be initialized by SPI
+  sgpr_initialized_by_spi = []
+  for index in range(user_sgpr_spi_count):
+    sgpr = user_sgpr_cp_count + user_sgpr_adc_count + index
+    l = liveness_dict.get('s' + str(sgpr))
+    if l is not None and (l[0] >= 0) and (l[2] == -1 or l[0] < l[2]):
+      sgpr_initialized_by_spi.append(sgpr)
+      if index == 0:
+        descriptor_dict["private_segment_wavefront_offset"] = [sgpr]
+        descriptor_dict["private_segment_wavefront_offset" + "_used"] = True 
+  #print("SPI: ", sgpr_initialized_by_spi)
 
   # Log registers from features that are overriden
-  for feature in ["workgroup_id_x", "workgroup_id_y", "workgroup_id_z"]:
+  for feature in ["workgroup_id_x", "workgroup_id_y", "workgroup_id_z", "private_segment_wavefront_offset"]:
     if feature in descriptor_dict:
       for reg in descriptor_dict[feature]:
-        l = liveness_dict['s' + str(reg)]
-        if l[0] < l[2]:
-          descriptor_dict[feature + "_overriden"] = True
-        elif l[2] == -1:
-          descriptor_dict[feature + "_overriden"] = False
+        l = liveness_dict.get('s' + str(reg))
+        if l is not None:
+          if l[0] < l[2]:
+            descriptor_dict[feature + "_overriden"] = True
+          elif l[2] == -1:
+            descriptor_dict[feature + "_overriden"] = False
+          else:
+            print("Unknown situtaion encountered!")
+          break
         else:
-          print("Unknown situtaion encountered!")
-        break
+          descriptor_dict[feature + "_overriden"] = False
 
   return descriptor_dict
 

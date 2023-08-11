@@ -48,11 +48,13 @@ PRIVATE_SIZE = r'amdhsa_private_segment_fixed_size'
 USER_SGPR_COUNT = r'amdhsa_user_sgpr_count'
 
 SYSTEM_SGPR_WORKGROUP_ID = r'amdhsa_system_sgpr_workgroup_id_'
+SYSTEM_SGPR_PRIVATE_SEGMENT_WAVEFRONT_OFFSET = r'amdhsa_system_sgpr_private_segment_wavefront_offset'
 
 DIMENSIONS = [ 'x', 'y', 'z' ]
 
 USER_SGPR_CP_COUNT = r'user_sgpr_cp_count'
 USER_SGPR_ADC_COUNT = r'user_sgpr_adc_count'
+USER_SGPR_SPI_COUNT = r'user_sgpr_spi_count'
 
 KERNARG_SEGMENT_PTR = r'kernarg_segment_ptr'
 PRIVATE_SEGMENT_BUFFER = r'private_segment_buffer'
@@ -177,9 +179,16 @@ def retrieve_sgpr_usage(kernel_name, metadata_dict):
 
   #print("User sgpr set by ADC: " + str(user_sgpr_adc_count))
 
+  # user sgprs set by SPI
+  user_sgpr_spi_count = 0
+  if metadata_dict[kernel_name][SYSTEM_SGPR_PRIVATE_SEGMENT_WAVEFRONT_OFFSET] == 1:
+      user_sgpr_spi_count += 1
+  metadata_dict[kernel_name][USER_SGPR_SPI_COUNT] = user_sgpr_spi_count
+  #print("User sgpr set by SPI: " + str(user_sgpr_spi_count))
+
 def decide_host_metadata_modification_needed(abi_analysis_dict):
   needed = False
-  for feature in ["private_segment_buffer", "dispatch_ptr", "queue_ptr", "kernarg_segment_ptr", "flat_scratch_init", "workgroup_id_x", "workgroup_id_y", "workgroup_id_z"]:
+  for feature in ["private_segment_buffer", "dispatch_ptr", "queue_ptr", "kernarg_segment_ptr", "flat_scratch_init", "workgroup_id_x", "workgroup_id_y", "workgroup_id_z", "private_segment_wavefront_offset"]:
     host_declared = abi_analysis_dict[feature]["host_declared"]
     guest_declared = abi_analysis_dict[feature]["guest_declared"]
 
@@ -198,7 +207,8 @@ def merge_abi_features(kernel_metadata_dict, host_kernel, guest_kernel):
                             ("flat_scratch_init", "amdhsa_user_sgpr_"), \
                             ("workgroup_id_x", "amdhsa_system_sgpr_"), \
                             ("workgroup_id_y", "amdhsa_system_sgpr_"), \
-                            ("workgroup_id_z", "amdhsa_system_sgpr_")]:
+                            ("workgroup_id_z", "amdhsa_system_sgpr_"), \
+                            ("private_segment_wavefront_offset", "amdhsa_system_sgpr_")]:
     # _used, _overriden will be computed by liveness analysis
     # only modify metadata fields and registers used
     kernel_metadata_dict[host_kernel][prefix + feature] = kernel_metadata_dict[guest_kernel][prefix + feature]
@@ -206,9 +216,10 @@ def merge_abi_features(kernel_metadata_dict, host_kernel, guest_kernel):
     if guest_registers is not None:
       kernel_metadata_dict[host_kernel][feature] = guest_registers
 
-  # Merge metadta regarding to the total SGPRs set by CP and ADC
+  # Merge metadta regarding to the total SGPRs set by CP and ADC and SPI
   kernel_metadata_dict[host_kernel][USER_SGPR_CP_COUNT] = kernel_metadata_dict[guest_kernel][USER_SGPR_CP_COUNT]
   kernel_metadata_dict[host_kernel][USER_SGPR_ADC_COUNT] = kernel_metadata_dict[guest_kernel][USER_SGPR_ADC_COUNT]
+  kernel_metadata_dict[host_kernel][USER_SGPR_SPI_COUNT] = kernel_metadata_dict[guest_kernel][USER_SGPR_SPI_COUNT]
 
 def emit_context_save_restore_logic(kernel_metadata_dict, host_kernel, guest_kernel, kernel_code_dict):
   # Produce context save/restore logic
@@ -219,10 +230,13 @@ def emit_context_save_restore_logic(kernel_metadata_dict, host_kernel, guest_ker
   
   # Obtain the next available SGPR / VGPR
   next_sgpr = kernel_metadata_dict[host_kernel][NEXT_FREE_SGPR]
+  next_sgpr_unset_by_cp_adc_spi = kernel_metadata_dict[host_kernel][USER_SGPR_CP_COUNT] + kernel_metadata_dict[host_kernel][USER_SGPR_ADC_COUNT] + kernel_metadata_dict[host_kernel][USER_SGPR_SPI_COUNT]
+  if next_sgpr < next_sgpr_unset_by_cp_adc_spi:
+    next_sgpr = next_sgpr_unset_by_cp_adc_spi
   next_vgpr = kernel_metadata_dict[host_kernel][NEXT_FREE_VGPR]
   
-  # Product logic to preserve workgroup ID SGPR
   user_sgpr_adc_saved = 0
+  # Produce logic to preserve workgroup ID SGPR
   for d in range(len(DIMENSIONS)):
     dim = DIMENSIONS[d]
     overriden = kernel_metadata_dict[host_kernel].get("workgroup_id_" + dim + "_overriden")
@@ -233,9 +247,21 @@ def emit_context_save_restore_logic(kernel_metadata_dict, host_kernel, guest_ker
       context_restore_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(kernel_metadata_dict[guest_kernel][USER_SGPR_CP_COUNT] + user_sgpr_adc_saved) + ', ' + 's' + str(next_sgpr))
       next_sgpr += 1
       user_sgpr_adc_saved += 1
+
+  user_sgpr_spi_saved = 0
+  # Produce logic to preserve private segment wavefront offst SGPR
+  overriden = kernel_metadata_dict[host_kernel].get("private_segment_wavefront_offset" + "_overriden")
+  if overriden is not None and overriden == 1:
+    context_save_logic.append('\t; save private segment wavefront offset')
+    context_save_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(next_sgpr) + ', ' + 's' + str(kernel_metadata_dict[host_kernel][USER_SGPR_CP_COUNT] + kernel_metadata_dict[host_kernel][USER_SGPR_ADC_COUNT] + user_sgpr_spi_saved))
+    context_restore_logic.append('\t; restore private segment wavefront offset')
+    context_restore_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(kernel_metadata_dict[guest_kernel][USER_SGPR_CP_COUNT] + kernel_metadata_dict[host_kernel][USER_SGPR_ADC_OCUNT] + user_sgpr_spi_saved) + ', ' + 's' + str(next_sgpr))
+    next_sgpr += 1
+    user_sgpr_spi_saved += 1
+
   kernel_metadata_dict[host_kernel][NEXT_FREE_SGPR] = next_sgpr
   
-  # Product logic to preserve workitem ID VGPR
+  # Produce logic to preserve workitem ID VGPR
   for d in range(len(DIMENSIONS)):
     dim = DIMENSIONS[d]
     if kernel_metadata_dict[host_kernel][SYSTEM_SGPR_WORKGROUP_ID + dim] == 1:
@@ -431,7 +457,8 @@ def emit_modified_kernel_epilogue(kernel_metadata_dict, host_kernel, kernel_epil
                                   ("flat_scratch_init", "amdhsa_user_sgpr_"), \
                                   ("workgroup_id_x", "amdhsa_system_sgpr_"), \
                                   ("workgroup_id_y", "amdhsa_system_sgpr_"), \
-                                  ("workgroup_id_z", "amdhsa_system_sgpr_")]:
+                                  ("workgroup_id_z", "amdhsa_system_sgpr_"), \
+                                  ("private_segment_wavefront_offset", "amdhsa_system_sgpr_")]:
           if m.group(1) == prefix + feature:
             modified_kernel_epilogue_list.append('\t\t.' + m.group(1) + ' ' + str(kernel_metadata_dict[host_kernel][prefix + feature]))
             break
@@ -662,7 +689,8 @@ def abi_feature_analysis(kernel_metadata_dict, host_kernel, guest_kernel):
                             ("flat_scratch_init", "amdhsa_user_sgpr_"), \
                             ("workgroup_id_x", "amdhsa_system_sgpr_"), \
                             ("workgroup_id_y", "amdhsa_system_sgpr_"), \
-                            ("workgroup_id_z", "amdhsa_system_sgpr_")]:
+                            ("workgroup_id_z", "amdhsa_system_sgpr_"), \
+                            ("private_segment_wavefront_offset", "amdhsa_system_sgpr_")]:
     # Obtain if a ROCm ABI feature is declared
     host_declared = (kernel_metadata_dict[host_kernel][prefix + feature] == 1)
     guest_declared = (kernel_metadata_dict[guest_kernel][prefix + feature] == 1)
@@ -693,7 +721,7 @@ def emit_context_adjust_logic(kernel_metadata_dict, abi_analysis_dict, host_kern
   # Prior analysis was already carried out to decide it's necessary to do the emission
   context_adjust_logic = []
   context_adjust_logic.append("; context adjust logic")
-  for feature in ["private_segment_buffer", "dispatch_ptr", "queue_ptr", "kernarg_segment_ptr", "flat_scratch_init", "workgroup_id_x", "workgroup_id_y", "workgroup_id_z"]:
+  for feature in ["private_segment_buffer", "dispatch_ptr", "queue_ptr", "kernarg_segment_ptr", "flat_scratch_init", "workgroup_id_x", "workgroup_id_y", "workgroup_id_z", "private_segment_wavefront_offset"]:
     host_used = abi_analysis_dict[feature]["host_used"]
     if host_used == True:
       host_registers = kernel_metadata_dict[host_kernel][feature]

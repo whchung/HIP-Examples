@@ -138,9 +138,11 @@ def get_descriptor(code_object_filename, descriptor_address, descriptor_length, 
   descriptor_dict["amdhsa_system_sgpr_workgroup_id_x"] = fetch_subbyte_number(descriptor[52:], 7, 1)
   descriptor_dict["amdhsa_system_sgpr_workgroup_id_y"] = fetch_subbyte_number(descriptor[52:], 8, 1)
   descriptor_dict["amdhsa_system_sgpr_workgroup_id_z"] = fetch_subbyte_number(descriptor[52:], 9, 1)
+  descriptor_dict["amdhsa_system_sgpr_private_segment_wavefront_offset"] = fetch_subbyte_number(descriptor[52:], 0, 1)
   #print("SGPR WORKGROUP ID X: " + str(fetch_subbyte_number(descriptor[52:], 7, 1)))
   #print("SGPR WORKGROUP ID Y: " + str(fetch_subbyte_number(descriptor[52:], 8, 1)))
   #print("SGPR WORKGROUP ID Z: " + str(fetch_subbyte_number(descriptor[52:], 9, 1)))
+  #print("SGPR ENABLE PRIVATE SEGMENT: " + str(fetch_subbyte_number(descriptor[52:], 0, 1)))
   #workitem_id_enum = fetch_subbyte_number(descriptor[52:], 11, 2)
   #if workitem_id_enum == 0:
   #  print("VGPR WORKITEM ID: X")
@@ -196,7 +198,7 @@ def main():
   isa = get_isa(code_object_filename, RCCL_KERNEL_NAME)
   for line in isa:
     print(line)
-  print(descriptor_dict)
+  #print(descriptor_dict)
 
   liveness_dict = liveness.liveness_analysis(isa)
 
