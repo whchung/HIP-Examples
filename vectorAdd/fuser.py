@@ -494,7 +494,31 @@ def emit_modified_kernel_epilogue(kernel_metadata_dict, host_kernel, kernel_epil
   kernel_epilogue_list = modified_kernel_epilogue_list
   return kernel_epilogue_list
 
-def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kernel, kernel_prologue_list, kernel_epilogue_list, guest_kernel_is_from_binary = False):
+def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kernel, kernel_prologue_list, kernel_epilogue_list, guest_kernel_is_from_binary = False, call_graph = None, call_graph_isa = None):
+  # Switch guest kernel logic from call graph ISA if it's available
+  # Call sites have been modified already
+  if call_graph is not None:
+    assert call_graph_isa is not None
+    assert len(call_graph) == len(call_graph_isa)
+    # Guest kernel logic is the first
+    kernel_code_dict[guest_kernel] = call_graph_isa[0]
+    
+    # For all others, insert into kernel prologue list
+    # TBD. Find a better way to handle kernel prologue list
+    host_kernel_prologue = kernel_prologue_list[2:]
+    host_kernel_prologue.insert(0, kernel_prologue_list[0])
+    kernel_prologue_list = [kernel_prologue_list[1]]
+    for index in range(1, len(call_graph)):
+      kernel_prologue_list.append('\t.text')
+      kernel_prologue_list.append('\t.p2align\t2')
+      kernel_prologue_list.append('\t.type\t' + call_graph[index] + ',@function')
+      kernel_prologue_list.append(call_graph[index] + ':')
+      kernel_prologue_list.extend(call_graph_isa[index])
+      kernel_prologue_list.append('.Lfunc_end_call_graph' + str(index) + ':')
+      kernel_prologue_list.append('\t.size\t' + call_graph[index] + ', .Lfunc_end_call_graph' + str(index) + '-' + call_graph[index])
+      kernel_prologue_list.append('')
+
+    kernel_prologue_list.extend(host_kernel_prologue)
 
   # Anaylsis ABI features
   abi_analysis_dict = abi_feature_analysis(kernel_metadata_dict, host_kernel, guest_kernel)
@@ -703,7 +727,15 @@ def fuse_source_with_dumper(host_kernel, guest_kernel):
   kernel_metadata_dict[guest_kernel] = dumper.get_descriptor(code_object_filename, descriptor_address, descriptor_length, guest_liveness_dict)
   kernel_metadata_dict[guest_kernel]["liveness"] = guest_liveness_dict
 
-  fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kernel, kernel_prologue_list, kernel_epilogue_list, True)
+  # Obtain symbol table of the code object containing the guest kernel
+  symbol_table = dumper.get_symbol_table(code_object_filename)
+
+  # Obtain call graph and ISA rooted from the guest kernel
+  call_graph = [guest_kernel]
+  call_graph_isa = []
+  [call_graph, call_graph_isa] = dumper.follow_call_graph(code_object_filename, guest_kernel, kernel_code_dict[guest_kernel], symbol_table, call_graph, call_graph_isa, True)
+
+  fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kernel, kernel_prologue_list, kernel_epilogue_list, True, call_graph, call_graph_isa)
 
 def abi_feature_analysis(kernel_metadata_dict, host_kernel, guest_kernel):
   # Retrieve information on the usage of ROCm ABI features

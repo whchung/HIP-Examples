@@ -253,7 +253,7 @@ def main():
   print("")
 
   call_graph = [RCCL_KERNEL_NAME]
-  call_graph_isa = [isa]
+  call_graph_isa = []
   [call_graph, call_graph_isa] = follow_call_graph(code_object_filename, RCCL_KERNEL_NAME, isa, symbol_table, call_graph, call_graph_isa, True)
   print("All symbols used by " + RCCL_KERNEL_NAME + ": ", call_graph)
   for (symbol_name, symbol_isa) in zip(call_graph, call_graph_isa):
