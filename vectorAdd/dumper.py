@@ -12,6 +12,8 @@ LLVM_OBJDUMP_PATH = "/opt/rocm/llvm/bin/llvm-objdump"
 
 GFXARCH_REGEX = r'^.*gfx90a:xnack-[ \t]+(.+)'
 
+S_GETPC_REGEX = r'^[ \t]+s_getpc_b64 s\[([0-9]+):([0-9]+)\]'
+
 LIBRCCL_PATH = "/home/jack/projects/rccl/build/librccl.so"
 RCCL_KERNEL_NAME = "_Z42ncclKernel_SendRecv_RING_SIMPLE_Sum_int8_tP11ncclDevCommmP8ncclWork"
 
@@ -185,9 +187,44 @@ def get_isa(code_object_filename, symbol_name):
     isa = isa[:-1]
   return isa
 
+def get_symbol_table(code_object_filename):
+  symbol_table_text = run_external_binary(LLVM_OBJDUMP_PATH, ["-t", code_object_filename])
+  symbol_table_text = symbol_table_text.splitlines()
+
+  symbol_table = {}
+  for line in symbol_table_text:
+    tokens = line.split() 
+    if len(tokens) == 0:
+      continue
+
+    symbol_address = 0
+    symbol_length = 0
+    symbol_name = ""
+
+    token = tokens[0]
+    m = re.search(r'^[0-9a-f]+', token)
+    if m is not None:
+      # Found a symbol
+      symbol_address = int(token, 16)
+    else:
+      # Not a symbol
+      continue
+
+    for index in range(1, len(tokens) - 1):
+       token = tokens[index]
+       m = re.search(r'^[0-9a-f]+', token)
+       if m is not None:
+         # Found a length
+         symbol_length = int(token, 16)
+
+    symbol_name = tokens[len(tokens) - 1]
+    symbol_table[symbol_name] = [symbol_address, symbol_length]
+
+  return symbol_table
+
 def main():
   code_object_filename = get_code_object(LIBRCCL_PATH)
-  print(code_object_filename)
+  #print(code_object_filename)
   [descriptor_address, descriptor_length, kernel_address, kernel_length] = get_symbol(code_object_filename, RCCL_KERNEL_NAME)
   if (descriptor_address == 0 or descriptor_length == 0 or kernel_address == 0 or kernel_length == 0):
     print("Error fetching code")
@@ -196,14 +233,24 @@ def main():
   descriptor_dict = get_descriptor(code_object_filename, descriptor_address, descriptor_length)
 
   isa = get_isa(code_object_filename, RCCL_KERNEL_NAME)
-  for line in isa:
-    print(line)
+  #for line in isa:
+  #  print(line)
   #print(descriptor_dict)
 
   liveness_dict = liveness.liveness_analysis(isa)
 
   descriptor_dict = get_descriptor(code_object_filename, descriptor_address, descriptor_length, liveness_dict)
-  print(descriptor_dict)
+  #print(descriptor_dict)
+
+  symbol_table = get_symbol_table(code_object_filename)
+  for symbol in symbol_table:
+    print(symbol, symbol_table[symbol])
+
+  #for line in isa:
+  #  m = re.search(S_GETPC_REGEX, line)
+  #  if m is not None:
+  #    print(line)
+
 
 if __name__ == "__main__":
   main()
