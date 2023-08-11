@@ -155,24 +155,25 @@ def get_descriptor(code_object_filename, descriptor_address, descriptor_length, 
   #  print("VGPR WORKITEM ID: X / Y / Z")
 
   # Obtain information from RSRC3
-  accum_offset = fetch_subbyte_number(descriptor[44:], 0, 6) * 4
+  accum_offset = (fetch_subbyte_number(descriptor[44:], 0, 6) + 1) * 4
   descriptor_dict["amdhsa_accum_offset"] = accum_offset
   #print("AGPR ACCUM OFFSET: " + str(accum_offset))
 
   # Obtain information from liveness analysis, or from RSRC1 (less precise)
   if liveness_dict is not None:
+    # TBD: register liveness analysis need to consider call graph too.
     liveness.deduce_descriptor(liveness_dict, descriptor_dict)
   else:
     # XXX. If there is no liveness analysis data, use hard-coded values.
     descriptor_dict["kernarg_segment_ptr"] = [4, 5]
   
-    # Obtain information from RSRC1
-    next_free_sgpr = fetch_subbyte_number(descriptor[48:], 6, 4) * 16
-    next_free_vgpr = fetch_subbyte_number(descriptor[48:], 0, 6) * 8
-    descriptor_dict["amdhsa_next_free_sgpr"] = next_free_sgpr
-    descriptor_dict["amdhsa_next_free_vgpr"] = next_free_vgpr
-    #print("SGPR: " + str(next_free_sgpr))
-    #print("VGPR: " + str(next_free_vgpr))
+  # Obtain information from RSRC1
+  next_free_sgpr = (fetch_subbyte_number(descriptor[48:], 6, 4) // 2 + 1) * 16
+  next_free_vgpr = (fetch_subbyte_number(descriptor[48:], 0, 6) + 1) * 8
+  descriptor_dict["amdhsa_next_free_sgpr"] = next_free_sgpr
+  descriptor_dict["amdhsa_next_free_vgpr"] = next_free_vgpr
+  #print("SGPR: " + str(next_free_sgpr))
+  #print("VGPR: " + str(next_free_vgpr))
   
   return descriptor_dict
 
