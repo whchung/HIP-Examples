@@ -264,7 +264,7 @@ def main():
     print("")
 
 def follow_call_graph(code_object_filename, function_name, isa, symbol_table, call_graph, call_graph_isa, modify_on_the_fly = False):
-  print("Call graph analysis for: " + function_name)
+  #print("Call graph analysis for: " + function_name)
   found_relocation_info = False
   reg1 = -1
   reg2 = -1
@@ -316,18 +316,18 @@ def follow_call_graph(code_object_filename, function_name, isa, symbol_table, ca
             for symbol in symbol_table:
               symbol_address = symbol_table[symbol][0]
               if callee_address == symbol_address:
-                print("\tCall site identified:")
-                print("\t=====================")
-                print(line1)
-                print(line2)
-                print("")
-                print("\tModify call site from absolute address to relative offset:")
-                print("\t==========================================================")
+                #print("\tCall site identified:")
+                #print("\t=====================")
+                #print(line1)
+                #print(line2)
+                #print("")
+                #print("\tModify call site from absolute address to relative offset:")
+                #print("\t==========================================================")
                 line1_modified = re.sub(r', 0x?[0-9a-f]+', ", " + symbol + "@rel32@lo+4", line1)
-                print(line1_modified)
+                #print(line1_modified)
                 line2_modified = re.sub(r', -?[0-9]+', ", " + symbol + "@rel32@hi+12", line2)
-                print(line2_modified)
-                print("")
+                #print(line2_modified)
+                #print("")
                 isa[line1_index] = line1_modified
                 isa[line2_index] = line2_modified
 
