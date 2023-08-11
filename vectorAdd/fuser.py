@@ -735,9 +735,12 @@ def emit_context_adjust_logic(kernel_metadata_dict, abi_analysis_dict, host_kern
 if __name__ == "__main__":
     # Kernel fusion process
     # obtain guest / host kernel logic from source/binary
+    # - obtain device functions used following call graph
+    # - modify device function addresses from absolute values to relative ones 
     # obtain guest / host kernel descriptor from binary
     # compute guest / host kernel metadata (potentially from kernel descriptor)
     # compute guest / host kernel register liveness analysis
+    # - register liveness analysis needs to consider call graph
     # decide if host kernel metadata on ABI features has to be modified
     # - produce context adjust logic
     # - modify host kernel metadata on ABI features
