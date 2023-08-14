@@ -80,7 +80,7 @@ KERNEL_METADATA_ENTRY_REGEX = MAYBE_EMPTY_SPACES + r'\.(\w+)' + NON_EMPTY_SPACES
 
 # RCCL-related constants
 LIBRCCL_PATH = "/home/whchung/projects/rccl/build/librccl.so"
-RCCL_KERNEL_NAME = "_Z42ncclKernel_SendRecv_RING_SIMPLE_Sum_int8_tP11ncclDevCommmP8ncclWork"
+RCCL_KERNEL_NAME = "_Z24mscclKernel_Sum_float_LLP11ncclDevCommP9mscclAlgo9mscclWork"
 
 # Parse input file, retrieve kernel names
 def retrieve_kernel_names(input_stream, output_list):
@@ -377,6 +377,16 @@ def kernel_prologue_peephole_modification(kernel_prologue_list):
       break
   return kernel_prologue_list
 
+def kernel_epilogue_peephole_modification(kernel_epilogue_list):
+  # Manipulate kernel epilogue, get rid of of all .amdgpu_metadata
+  for line_number in range(len(kernel_epilogue_list)):
+    line = kernel_epilogue_list[line_number]
+    m = re.search(r'amdgpu_metadata', line)
+    if m is not None:
+      kernel_epilogue_list = kernel_epilogue_list[:line_number]
+      break
+  return kernel_epilogue_list
+
 def host_peephole_modification(host_kernel_code):
   # Manipulate host kernel
   # Disable s_endpgm
@@ -557,6 +567,9 @@ def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kerne
 
   # Peephole modification for kernel prologue
   kernel_prologue_list = kernel_prologue_peephole_modification(kernel_prologue_list)
+
+  # Peephole modification for kernel epilogue
+  kernel_epilogue_list = kernel_epilogue_peephole_modification(kernel_epilogue_list)
   
   # Skip renaming BBs if guest kernel is extracted from binary.
   if guest_kernel_is_from_binary != True:

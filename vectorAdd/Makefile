@@ -31,11 +31,11 @@ fuse: $(EXECUTABLE) test
 	@echo "\n==== Kernel Fusion ====\n"
 	./fuser.py $(FILENAME)-hip-amdgcn-amd-amdhsa-$(GFXARCH).s > fused.s
 	@./assemble.sh
-	mpirun.mpich -np 2 -env AMD_KERNEL_FUSION=1 -env AMD_KERNEL_FUSION_HOST=_Z7kernel1PKfS0_Pf -env AMD_KERNEL_FUSION_GUEST=_Z42ncclKernel_SendRecv_RING_SIMPLE_Sum_int8_tP11ncclDevCommmP8ncclWork -env LD_PRELOAD=$(HIP_LIBRARY):$(RCCL_LIBRARY) ./fused.exe
+	mpirun.mpich -np 16 -env AMD_KERNEL_FUSION=1 -env AMD_KERNEL_FUSION_HOST=_Z7kernel1PKfS0_Pf -env AMD_KERNEL_FUSION_GUEST=_Z24mscclKernel_Sum_float_LLP11ncclDevCommP9mscclAlgo9mscclWork -env LD_PRELOAD=$(HIP_LIBRARY):$(RCCL_LIBRARY) ./fused.exe
 
 test: $(EXECUTABLE)
 	@echo "\n==== Back-to-back Kernels  ====\n"
-	mpirun.mpich -np 2 -env LD_PRELOAD=$(HIP_LIBRARY):$(RCCL_LIBRARY) $(EXECUTABLE)
+	mpirun.mpich -np 16 -env LD_PRELOAD=$(HIP_LIBRARY):$(RCCL_LIBRARY) $(EXECUTABLE)
 
 clean:
 	@rm -f $(EXECUTABLE)
