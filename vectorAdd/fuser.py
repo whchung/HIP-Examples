@@ -79,7 +79,7 @@ KERNEL_METADATA_ENTRY_REGEX = MAYBE_EMPTY_SPACES + r'\.(\w+)' + NON_EMPTY_SPACES
 
 
 # RCCL-related constants
-LIBRCCL_PATH = "/home/jack/projects/rccl/build/librccl.so"
+LIBRCCL_PATH = "/home/whchung/projects/rccl/build/librccl.so"
 RCCL_KERNEL_NAME = "_Z42ncclKernel_SendRecv_RING_SIMPLE_Sum_int8_tP11ncclDevCommmP8ncclWork"
 
 # Parse input file, retrieve kernel names

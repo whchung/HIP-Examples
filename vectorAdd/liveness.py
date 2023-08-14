@@ -183,22 +183,17 @@ def deduce_descriptor(liveness_dict, descriptor_dict):
     descriptor_dict["flat_scratch_init"] = [8, 9]
   elif user_sgpr_cp_count == 8:
     # private segment buffer is used
-    # either dispatch ptr or queue ptr is used, HAVE TO GUESS
     # kernarg segment ptr is used
     descriptor_dict["amdhsa_user_sgpr_private_segment_buffer"] = 1
-    # XXX. TBD. Force guess on the dispatch ptr for now.
     descriptor_dict["amdhsa_user_sgpr_queue_ptr"] = 0
-    descriptor_dict["amdhsa_user_sgpr_dispatch_ptr"] = 1
-    #descriptor_dict["amdhsa_user_sgpr_queue_ptr"] = 1
+    descriptor_dict["amdhsa_user_sgpr_dispatch_ptr"] = 0
     descriptor_dict["amdhsa_user_sgpr_kernarg_segment_ptr"] = 1
     descriptor_dict["amdhsa_user_sgpr_dispatch_id"] = 0
-    descriptor_dict["amdhsa_user_sgpr_flat_scratch_init"] = 0
+    descriptor_dict["amdhsa_user_sgpr_flat_scratch_init"] = 1
 
     descriptor_dict["private_segment_buffer"] = [0, 1, 2, 3]
-    descriptor_dict["dispatch_ptr"] = [4, 5]
-    # XXX. TBD. Force guess on the dispatch ptr for now.
-    #descriptor_dict["queue_ptr"] = [6, 7]
-    descriptor_dict["kernarg_segment_ptr"] = [6, 7]
+    descriptor_dict["kernarg_segment_ptr"] = [4, 5]
+    descriptor_dict["flat_scratch_init"] = [6, 7]
   elif user_sgpr_cp_count == 6:
     # private segment buffer is used
     # kernarg segment ptr is used

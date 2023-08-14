@@ -15,7 +15,7 @@ GFXARCH_REGEX = r'^.*gfx90a:xnack-[ \t]+(.+)'
 S_GETPC_REGEX = r'^[ \t]+s_getpc_b64 s\[([0-9]+):([0-9]+)\][ \t]+// ([0-9A-F]+):'
 MODIFY_PC_REGEX = r'^[ \t]+s_addc?_u32 s([0-9]+), s([0-9]+), (0x?[0-9a-f]+|-?[0-9]+)[ \t]+// ([0-9A-F]+):'
 
-LIBRCCL_PATH = "/home/jack/projects/rccl/build/librccl.so"
+LIBRCCL_PATH = "/home/whchung/projects/rccl/build/librccl.so"
 RCCL_KERNEL_NAME = "_Z42ncclKernel_SendRecv_RING_SIMPLE_Sum_int8_tP11ncclDevCommmP8ncclWork"
 
 def run_external_binary(binary_path, arguments=[]):
@@ -101,6 +101,7 @@ def get_descriptor(code_object_filename, descriptor_address, descriptor_length, 
   # get descriptor
   descriptor_raw_text = run_external_binary(LLVM_OBJDUMP_PATH, ["-s", "--section=.rodata", code_object_filename])
   descriptor_length_remaining = descriptor_length
+  descriptor_found = False
   descriptor = []
   for line in descriptor_raw_text.splitlines()[2:]:
     tokens = line.split()
@@ -246,23 +247,23 @@ def main():
   #print(descriptor_dict)
 
   symbol_table = get_symbol_table(code_object_filename)
-  print("Symbol Table:")
+  #print("Symbol Table:")
   for symbol in symbol_table:
     address = symbol_table[symbol][0]
     length = symbol_table[symbol][1]
-    print(symbol, hex(address), hex(length))
-  print("")
+    #print(symbol, hex(address), hex(length))
+  #print("")
 
   call_graph = [RCCL_KERNEL_NAME]
   call_graph_isa = []
   [call_graph, call_graph_isa] = follow_call_graph(code_object_filename, RCCL_KERNEL_NAME, isa, symbol_table, call_graph, call_graph_isa, True)
   print("All symbols used by " + RCCL_KERNEL_NAME + ": ", call_graph)
-  for (symbol_name, symbol_isa) in zip(call_graph, call_graph_isa):
-    print(symbol_name)
-    print("===============================")
-    for line in symbol_isa:
-      print(line)
-    print("")
+  #for (symbol_name, symbol_isa) in zip(call_graph, call_graph_isa):
+  #  print(symbol_name)
+  #  print("===============================")
+  #  for line in symbol_isa:
+  #    print(line)
+  #  print("")
 
 def follow_call_graph(code_object_filename, function_name, isa, symbol_table, call_graph, call_graph_isa, modify_on_the_fly = False):
   #print("Call graph analysis for: " + function_name)
