@@ -169,6 +169,7 @@ def get_descriptor(code_object_filename, descriptor_address, descriptor_length, 
   
   # Obtain information from RSRC1
   next_free_sgpr = (fetch_subbyte_number(descriptor[48:], 6, 4) // 2 + 1) * 16
+  next_free_sgpr = 102 if next_free_sgpr > 102 else next_free_sgpr
   next_free_vgpr = (fetch_subbyte_number(descriptor[48:], 0, 6) + 1) * 8
   descriptor_dict["amdhsa_next_free_sgpr"] = next_free_sgpr
   descriptor_dict["amdhsa_next_free_vgpr"] = next_free_vgpr
