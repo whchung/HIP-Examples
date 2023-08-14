@@ -8,11 +8,13 @@ HIP_LIBRARY=/home/whchung/projects/clr/build/hipamd/lib/libamdhip64.so
 RCCL_LIBRARY=/home/whchung/projects/rccl/build/librccl.so
 
 FILENAME = vectoradd_hip
+FILENAME_FUSED = fused
 SOURCES = $(FILENAME).cpp
 OBJECTS = $(SOURCES:.cpp=.o)
 GFXARCH = $(shell rocm_agent_enumerator | tail -1)
 
 EXECUTABLE=./$(FILENAME).exe
+EXECUTABLE_FUSED=./$(FILENAME_FUSED).exe
 
 .PHONY: test
 
@@ -27,15 +29,19 @@ CXX=$(HIPCC)
 $(EXECUTABLE): $(OBJECTS) 
 	$(HIPCC) $(OBJECTS) -o $@ -lmpich -L~/projects/rccl/build -lrccl
 
-fuse: $(EXECUTABLE) test
-	@echo "\n==== Kernel Fusion ====\n"
-	./fuser.py $(FILENAME)-hip-amdgcn-amd-amdhsa-$(GFXARCH).s > fused.s
+$(EXECUTABLE_FUSED): $(EXECUTABLE)
+	@./fuser.py $(FILENAME)-hip-amdgcn-amd-amdhsa-$(GFXARCH).s > fused.s
 	@./assemble.sh
-	mpirun.mpich -np 16 -env AMD_KERNEL_FUSION=1 -env AMD_KERNEL_FUSION_HOST=_Z7kernel1PKfS0_Pf -env AMD_KERNEL_FUSION_GUEST=_Z24mscclKernel_Sum_float_LLP11ncclDevCommP9mscclAlgo9mscclWork -env LD_PRELOAD=$(HIP_LIBRARY):$(RCCL_LIBRARY) ./fused.exe
+
+fuse: $(EXECUTABLE) $(EXECUTABLE_FUSED)
+	@echo "\n==== Kernel Fusion ====\n"
+	mpirun.mpich -np 16 -env AMD_KERNEL_FUSION=1 -env AMD_KERNEL_FUSION_HOST=_Z7kernel1PKfS0_Pf -env AMD_KERNEL_FUSION_GUEST=_Z24mscclKernel_Sum_float_LLP11ncclDevCommP9mscclAlgo9mscclWork -env LD_PRELOAD=$(HIP_LIBRARY):$(RCCL_LIBRARY) $(EXECUTABLE_FUSED)
 
 test: $(EXECUTABLE)
 	@echo "\n==== Back-to-back Kernels  ====\n"
 	mpirun.mpich -np 16 -env LD_PRELOAD=$(HIP_LIBRARY):$(RCCL_LIBRARY) $(EXECUTABLE)
+
+bench: test fuse
 
 clean:
 	@rm -f $(EXECUTABLE)
