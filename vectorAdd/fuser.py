@@ -256,7 +256,7 @@ def emit_context_save_restore_logic(kernel_metadata_dict, host_kernel, guest_ker
     context_save_logic.append('\t; save private segment wavefront offset')
     context_save_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(next_sgpr) + ', ' + 's' + str(kernel_metadata_dict[host_kernel][USER_SGPR_CP_COUNT] + kernel_metadata_dict[host_kernel][USER_SGPR_ADC_COUNT] + user_sgpr_spi_saved))
     context_restore_logic.append('\t; restore private segment wavefront offset')
-    context_restore_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(kernel_metadata_dict[guest_kernel][USER_SGPR_CP_COUNT] + kernel_metadata_dict[host_kernel][USER_SGPR_ADC_OCUNT] + user_sgpr_spi_saved) + ', ' + 's' + str(next_sgpr))
+    context_restore_logic.append('\ts_mov_b32_e32' + ' ' + 's' + str(kernel_metadata_dict[guest_kernel][USER_SGPR_CP_COUNT] + kernel_metadata_dict[host_kernel][USER_SGPR_ADC_COUNT] + user_sgpr_spi_saved) + ', ' + 's' + str(next_sgpr))
     next_sgpr += 1
     user_sgpr_spi_saved += 1
 

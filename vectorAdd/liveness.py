@@ -293,12 +293,12 @@ def deduce_descriptor(liveness_dict, descriptor_dict):
       for reg in descriptor_dict[feature]:
         l = liveness_dict.get('s' + str(reg))
         if l is not None:
-          if l[0] < l[2]:
+          if l[2] >= 0:
             descriptor_dict[feature + "_overriden"] = True
           elif l[2] == -1:
             descriptor_dict[feature + "_overriden"] = False
           else:
-            print("Unknown situtaion encountered!")
+            print("Unknown situtaion encountered deducing SGPR overriden status for " + feature + " on SGPR " + "s" + str(reg) + ": ", l)
           break
         else:
           descriptor_dict[feature + "_overriden"] = False
