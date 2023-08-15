@@ -9,7 +9,7 @@ import liveness
 # Configuration
 INPUT_FILE = "vectoradd_hip-hip-amdgcn-amd-amdhsa-gfx90a.s"
 FUSED_MANIFEST_FILE = "fused_manifest.txt"
-HOST_KERNEL = '_Z7kernel1PKfS0_Pf'
+HOST_KERNEL = '_Z7kernel1PKfS0_PfPi'
 GUEST_KERNEL = '_Z7kernel2PKfPf'
 
 # Constants
