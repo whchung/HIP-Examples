@@ -4820,33 +4820,31 @@ GLOBAL_SYNC_ENTRY:
         s_waitcnt lgkmcnt(0)
 	; backup EXEC mask
         s_and_saveexec_b64 s[4:5], vcc
-        s_cbranch_execz GLOBAL_SYNC_LOOP_END
 
         ; workitem 0 in a workgroup atomically add 1 to the semaphore
-        s_mov_b32 s20, 1
-        s_atomic_add s20, s[18:19] glc
-        s_waitcnt lgkmcnt(0)
+	v_mov_b32_e32 v2, 1 
+	v_mov_b32_e32 v18, s18
+	v_mov_b32_e32 v19, s19
+	global_atomic_add v2, v[18:19], v2, off glc
+        s_waitcnt vmcnt(0)
 
         ; atomic spin loop to retrieve the # of workgroups finished
 GLOBAL_SYNC_SPIN_LOOP:
-        s_mov_b32 s20, 0
-        s_atomic_add s20, s[18:19] glc
-        s_waitcnt lgkmcnt(0)
-	; check if we reached the # of workgroups in the host kernel
-	; maximum workable # of workgroups = # of CU * 2
-        s_cmpk_lt_i32 s20, 32
-        s_cbranch_scc1 GLOBAL_SYNC_SPIN_LOOP
+	v_mov_b32_e32 v2, 0
+	global_atomic_add v2, v[18:19], v2, off glc
+        s_waitcnt vmcnt(0)
+	v_cmp_eq_u32_e32 vcc, 0, v2
+	; avoid hazard by manually adding nop
+	s_nop 1
+        s_cbranch_vccnz GLOBAL_SYNC_SPIN_LOOP
 
         ;; store the # of workgroups exit atomic spin loop to C for debugging
-        ;v_mov_b32_e32 v2, s20
         ;global_store_dword v[0:1], v2, off
         ;s_waitcnt vmcnt(0)
 
 GLOBAL_SYNC_LOOP_END:
 	; restore EXEC mask
         s_or_saveexec_b64 s[4:5], s[4:5]
-	; wait on workitem 0 to reach the barrier
-	s_barrier
 
 	; clear the semaphore only on workgroup 0
 	; s10 = workgroup ID X
@@ -4854,7 +4852,7 @@ GLOBAL_SYNC_LOOP_END:
 	s_cbranch_scc0 GLOBAL_SYNC_END
 	s_mov_b32 s20, 0
 	s_store_dword s20, s[18:19] glc
-	s_waitcnt lgkmcnt(0)
+	s_waitcnt vmcnt(0) lgkmcnt(0)
 
 GLOBAL_SYNC_END:
 

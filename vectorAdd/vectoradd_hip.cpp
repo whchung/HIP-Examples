@@ -42,7 +42,7 @@ THE SOFTWARE.
 #endif
 
 
-#define WIDTH     8
+#define WIDTH     72
 #define HEIGHT    1024
 
 #define NUM       (WIDTH*HEIGHT)
@@ -228,8 +228,10 @@ int main() {
   }
 
 #if 0
-  for (i = 0; i < NUM; i+=THREADS_PER_BLOCK_X) {
-      printf("A: %6.3f, B: %6.3f, C: %6.3f, (int)C: %d\n", hostA[i], hostB[i], hostC[i], reinterpret_cast<int*>(hostC)[i]);
+  if (comm_rank == 1) {
+    for (i = 0; i < (NUM/THREADS_PER_BLOCK_X * THREADS_PER_BLOCK_X); i+=THREADS_PER_BLOCK_X) {
+        printf("A: %6.3f, B: %6.3f, C: %6.3f, (int)C: %d\n", hostA[i], hostB[i], hostC[i], reinterpret_cast<int*>(hostC)[i]);
+    }
   }
 #endif
   float ms = 0.0f;

@@ -32,16 +32,10 @@ fuse: $(EXECUTABLE) test
 	#./fuser.py $(FILENAME)-hip-amdgcn-amd-amdhsa-$(GFXARCH).s > fused.s
 	./assemble.sh
 	mpirun.mpich -np 2 -env AMD_KERNEL_FUSION=1 -env AMD_KERNEL_FUSION_HOST=_Z7kernel1PKfS0_PfPi -env AMD_KERNEL_FUSION_GUEST=_Z42ncclKernel_SendRecv_RING_SIMPLE_Sum_int8_tP11ncclDevCommmP8ncclWork -env ROC_USE_FGS_KERNARG=0 -env LD_PRELOAD=$(HIP_LIBRARY):$(RCCL_LIBRARY) ./fused.exe
-	@mpirun.mpich -np 2 -env AMD_LOG_LEVEL=4 -env AMD_KERNEL_FUSION=1 -env AMD_KERNEL_FUSION_HOST=_Z7kernel1PKfS0_PfPi -env AMD_KERNEL_FUSION_GUEST=_Z42ncclKernel_SendRecv_RING_SIMPLE_Sum_int8_tP11ncclDevCommmP8ncclWork -env ROC_USE_FGS_KERNARG=0 -env LD_PRELOAD=$(HIP_LIBRARY):$(RCCL_LIBRARY) ./fused.exe 1>/dev/null 2>run_fused.log
-	@echo "Number of AQL packets submitted: `grep kernel_obj run_fused.log | wc -l`"
-	@rm -f run_fused.log
 
 test: $(EXECUTABLE)
 	@echo "\n==== Back-to-back Kernels  ====\n"
 	mpirun.mpich -np 2 -env ROC_USE_FGS_KERNARG=0 $(EXECUTABLE)
-	@mpirun.mpich -np 2 -env AMD_LOG_LEVEL=4 -env ROC_USE_FGS_KERNARG=0 $(EXECUTABLE) 1>/dev/null 2>run.log
-	@echo "Number of AQL packets submitted: `grep kernel_obj run.log | wc -l`"
-	@rm -f run.log
 
 clean:
 	@rm -f $(EXECUTABLE)
