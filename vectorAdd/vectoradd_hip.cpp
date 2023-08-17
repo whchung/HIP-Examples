@@ -42,12 +42,13 @@ THE SOFTWARE.
 #endif
 
 
-#define WIDTH     72
-#define HEIGHT    1024
+#define WIDTH     288
+#define HEIGHT    256
 
 #define NUM       (WIDTH*HEIGHT)
-#define WARMUP    (4)
-#define ROUNDS    (64)
+#define WARMUP    (0)
+#define ROUNDS    (1)
+#define OUTER_ROUNDS (64)
 
 #define THREADS_PER_BLOCK_X  256
 
@@ -184,40 +185,51 @@ int main() {
 #if 0
     HIP_ASSERT(hipMemcpy(deviceSema, hostSema, 1*sizeof(int), hipMemcpyHostToDevice));
 #endif
-  usleep(500);
-  HIP_ASSERT(hipEventRecord(startEvent, nullptr));
+  for (int outer_iter = 0; outer_iter < OUTER_ROUNDS; ++outer_iter) {
+    usleep(500);
+    HIP_ASSERT(hipEventRecord(startEvent, nullptr));
  
-  MPI_Barrier(MPI_COMM_WORLD);
-  for (i = 0; i < ROUNDS; ++i) {
-    hipLaunchKernelGGL(kernel1, 
-                    dim3(WIDTH*HEIGHT/THREADS_PER_BLOCK_X),
-                    dim3(THREADS_PER_BLOCK_X),
-                    0, 0,
-                    deviceA ,deviceB ,deviceC, deviceSema
-                    );
+    MPI_Barrier(MPI_COMM_WORLD);
+    for (i = 0; i < ROUNDS; ++i) {
+      hipLaunchKernelGGL(kernel1, 
+                      dim3(WIDTH*HEIGHT/THREADS_PER_BLOCK_X),
+                      dim3(THREADS_PER_BLOCK_X),
+                      0, 0,
+                      deviceA ,deviceB ,deviceC, deviceSema
+                      );
  
-    ncclGroupStart();
-    ncclAllReduce(send_buffer, send_buffer, all_reduce_size, ncclFloat32, ncclSum, nccl_comm, NULL);
-    ncclGroupEnd();
+      ncclGroupStart();
+      ncclAllReduce(send_buffer, send_buffer, all_reduce_size, ncclFloat32, ncclSum, nccl_comm, NULL);
+      ncclGroupEnd();
 #if 0
-    // kernel2 will be fused with vectoradd_float
-    hipLaunchKernelGGL(kernel2, 
-                    dim3(WIDTH*HEIGHT/THREADS_PER_BLOCK_X),
-                    dim3(THREADS_PER_BLOCK_X),
-                    0, 0,
-                    deviceC ,deviceD);
+      // kernel2 will be fused with vectoradd_float
+      hipLaunchKernelGGL(kernel2, 
+                      dim3(WIDTH*HEIGHT/THREADS_PER_BLOCK_X),
+                      dim3(THREADS_PER_BLOCK_X),
+                      0, 0,
+                      deviceC ,deviceD);
 #endif
+    }
 
-#if 0
-    HIP_ASSERT(hipMemcpy(deviceSema, hostSema, 1*sizeof(int), hipMemcpyHostToDevice));
-#endif
-  }
+    HIP_ASSERT(hipEventRecord(stopEvent, nullptr));
+    HIP_ASSERT(hipEventSynchronize(stopEvent));
 
-  HIP_ASSERT(hipEventRecord(stopEvent, nullptr));
-  HIP_ASSERT(hipEventSynchronize(stopEvent));
+    HIP_ASSERT(hipMemcpy(hostC, deviceC, NUM*sizeof(float), hipMemcpyDeviceToHost));
+    HIP_ASSERT(hipMemcpy(hostD, deviceD, NUM*sizeof(float), hipMemcpyDeviceToHost));
 
-  HIP_ASSERT(hipMemcpy(hostC, deviceC, NUM*sizeof(float), hipMemcpyDeviceToHost));
-  HIP_ASSERT(hipMemcpy(hostD, deviceD, NUM*sizeof(float), hipMemcpyDeviceToHost));
+    int wg = 0;
+    int expected_result = NUM/THREADS_PER_BLOCK_X;
+    if (expected_result > 208) expected_result = 208;
+    if (comm_rank == 1) {
+      for (i = 0; i < (NUM/THREADS_PER_BLOCK_X * THREADS_PER_BLOCK_X); i+=THREADS_PER_BLOCK_X) {
+          //printf("A: %6.3f, B: %6.3f, C: %6.3f, (int)C: %d\n", hostA[i], hostB[i], hostC[i], reinterpret_cast<int*>(hostC)[i]);
+          if (reinterpret_cast<int*>(hostC)[i] >= expected_result) {
+            ++wg;
+          }
+      }
+      printf("WG Passing: %d / %d\n", wg, (NUM / THREADS_PER_BLOCK_X));
+    }
+  } // outer_iter
 
   // verify the results
   errors = 0;
@@ -227,17 +239,14 @@ int main() {
     }
   }
 
-#if 0
-  if (comm_rank == 1) {
-    for (i = 0; i < (NUM/THREADS_PER_BLOCK_X * THREADS_PER_BLOCK_X); i+=THREADS_PER_BLOCK_X) {
-        printf("A: %6.3f, B: %6.3f, C: %6.3f, (int)C: %d\n", hostA[i], hostB[i], hostC[i], reinterpret_cast<int*>(hostC)[i]);
-    }
-  }
-#endif
+#if 1
   float ms = 0.0f;
   HIP_ASSERT(hipEventElapsedTime(&ms, startEvent, stopEvent));
-  printf("Total time: %6.3f ms\n", ms);
-  printf("Per-round time: %6.3f us\n", ms / ROUNDS * 1000.0f);
+  if (comm_rank == 1) {
+    printf("Total time: %6.3f ms\n", ms);
+    printf("Per-round time: %6.3f us\n", ms / ROUNDS * 1000.0f);
+  }
+#endif
 
 #if 0
   if (errors!=0) {
