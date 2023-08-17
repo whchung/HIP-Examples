@@ -4828,8 +4828,12 @@ GLOBAL_SYNC_ENTRY:
 	global_atomic_add v2, v[18:19], v2, off glc
         s_waitcnt vmcnt(0)
 
-        ; use unrolled atomic instructions to retrieve the # of workgroups finished
-	; do NOT spin loop
+	s_cbranch_execz GLOBAL_SYNC_LOOP_END
+
+	s_cmpk_lt_u32_e32 s10, 32
+	s_cbranch_scc0 GLOBAL_SYNC_LOOP_END
+
+        ; use atomic instructions to retrieve the # of workgroups finished
 	v_mov_b32_e32 v2, 0
 	global_atomic_add v2, v[18:19], v2, off glc
         s_waitcnt vmcnt(0)
@@ -4842,22 +4846,13 @@ GLOBAL_SYNC_ENTRY:
 	v_mov_b32_e32 v2, 0
 	global_atomic_add v2, v[18:19], v2, off glc
         s_waitcnt vmcnt(0)
-	;v_mov_b32_e32 v2, 0
-	;global_atomic_add v2, v[18:19], v2, off glc
-        ;s_waitcnt vmcnt(0)
-	;v_mov_b32_e32 v2, 0
-	;global_atomic_add v2, v[18:19], v2, off glc
-        ;s_waitcnt vmcnt(0)
-	;v_mov_b32_e32 v2, 0
-	;global_atomic_add v2, v[18:19], v2, off glc
-        ;s_waitcnt vmcnt(0)
-	;v_mov_b32_e32 v2, 0
-	;global_atomic_add v2, v[18:19], v2, off glc
+
+        ;; store the # of workgroups exit atomic spin loop to C for debugging
+        ;global_store_dword v[0:1], v2, off
         ;s_waitcnt vmcnt(0)
 
-        ; store the # of workgroups exit atomic spin loop to C for debugging
-        global_store_dword v[0:1], v2, off
-        s_waitcnt vmcnt(0)
+GLOBAL_SYNC_LOOP_END:
+	s_barrier
 
 	; restore EXEC mask
         s_or_saveexec_b64 s[4:5], s[4:5]
