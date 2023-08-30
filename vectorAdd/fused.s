@@ -4829,10 +4829,14 @@ GLOBAL_SYNC_ENTRY:
 	flat_atomic_inc v2, v[18:19], v3 glc
         s_waitcnt vmcnt(0)
 
+	; for workitems != 0 enter barrier directly
 	s_cbranch_execz GLOBAL_SYNC_LOOP_END
 
+	; for workgroups >= 32 enter barrier directly
 	s_cmpk_lt_u32_e32 s10, 32
 	s_cbranch_scc0 GLOBAL_SYNC_LOOP_END
+
+	; only workitem 0 on workgroup [0..31] participate in the spin loop
 
         ; use atomic add instructions to retrieve the # of workgroups finished
 GLOBAL_SYNC_LOOP:

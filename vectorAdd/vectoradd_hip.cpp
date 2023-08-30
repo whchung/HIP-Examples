@@ -218,18 +218,19 @@ int main() {
     HIP_ASSERT(hipMemcpy(hostD, deviceD, NUM*sizeof(float), hipMemcpyDeviceToHost));
 
 #if FUSED
+#define EXPECTED_WG (32)
     int wg = 0;
     int expected_result = NUM/THREADS_PER_BLOCK_X;
     if (comm_rank == 1) {
       for (i = 0; i < NUM; i+=THREADS_PER_BLOCK_X) {
-	  if (i < THREADS_PER_BLOCK_X * 32) {
+	  if (i < THREADS_PER_BLOCK_X * EXPECTED_WG) {
               printf("A: %6.3f, B: %6.3f, C: %6.3f, (int)C: %d\n", hostA[i], hostB[i], hostC[i], reinterpret_cast<int*>(hostC)[i]);
+              if (reinterpret_cast<int*>(hostC)[i] >= expected_result) {
+                ++wg;
+              }
 	  }
-          if (reinterpret_cast<int*>(hostC)[i] >= expected_result) {
-            ++wg;
-          }
       }
-      printf("WG Passing: %d / %d\n", wg, (NUM / THREADS_PER_BLOCK_X));
+      printf("WG Passing: %d / %d\n", wg, EXPECTED_WG);
     }
 #endif
   } // outer_iter
