@@ -31,7 +31,7 @@ THE SOFTWARE.
 #include <unistd.h>
 
 #ifndef FUSED
-#define FUSED (1)
+#define FUSED (0)
 #endif
 
 #define NDEBUG
@@ -220,7 +220,6 @@ int main() {
 #if FUSED
     int wg = 0;
     int expected_result = NUM/THREADS_PER_BLOCK_X;
-    //if (expected_result > 208) expected_result = 208;
     if (comm_rank == 1) {
       for (i = 0; i < NUM; i+=THREADS_PER_BLOCK_X) {
 	  if (i < THREADS_PER_BLOCK_X * 32) {
