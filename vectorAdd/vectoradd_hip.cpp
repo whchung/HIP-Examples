@@ -31,7 +31,7 @@ THE SOFTWARE.
 #include <unistd.h>
 
 #ifndef FUSED
-#define FUSED (0)
+#define FUSED (1)
 #endif
 
 #define NDEBUG
@@ -42,13 +42,13 @@ THE SOFTWARE.
 #endif
 
 
-#define WIDTH     288
+#define WIDTH     (288)
 #define HEIGHT    256
 
 #define NUM       (WIDTH*HEIGHT)
 #define WARMUP    (4)
 #define ROUNDS    (64)
-#define OUTER_ROUNDS (1024)
+#define OUTER_ROUNDS (1)
 
 #define THREADS_PER_BLOCK_X  256
 
@@ -217,13 +217,15 @@ int main() {
     HIP_ASSERT(hipMemcpy(hostC, deviceC, NUM*sizeof(float), hipMemcpyDeviceToHost));
     HIP_ASSERT(hipMemcpy(hostD, deviceD, NUM*sizeof(float), hipMemcpyDeviceToHost));
 
-#if 0 && FUSED
+#if FUSED
     int wg = 0;
     int expected_result = NUM/THREADS_PER_BLOCK_X;
-    if (expected_result > 208) expected_result = 208;
+    //if (expected_result > 208) expected_result = 208;
     if (comm_rank == 1) {
-      for (i = 0; i < (NUM/THREADS_PER_BLOCK_X * THREADS_PER_BLOCK_X); i+=THREADS_PER_BLOCK_X) {
-          printf("A: %6.3f, B: %6.3f, C: %6.3f, (int)C: %d\n", hostA[i], hostB[i], hostC[i], reinterpret_cast<int*>(hostC)[i]);
+      for (i = 0; i < NUM; i+=THREADS_PER_BLOCK_X) {
+	  if (i < THREADS_PER_BLOCK_X * 32) {
+              printf("A: %6.3f, B: %6.3f, C: %6.3f, (int)C: %d\n", hostA[i], hostB[i], hostC[i], reinterpret_cast<int*>(hostC)[i]);
+	  }
           if (reinterpret_cast<int*>(hostC)[i] >= expected_result) {
             ++wg;
           }
