@@ -494,7 +494,76 @@ def emit_modified_kernel_epilogue(kernel_metadata_dict, host_kernel, kernel_epil
   kernel_epilogue_list = modified_kernel_epilogue_list
   return kernel_epilogue_list
 
-def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kernel, kernel_prologue_list, kernel_epilogue_list, guest_kernel_is_from_binary = False, call_graph = None, call_graph_isa = None):
+def emit_global_sync_logic():
+  global_sync_logic = """
+; global sync logic
+GLOBAL_SYNC_ENTRY:
+    ; fetch semaphore pointer
+    ; s[4:5] = kernarg segment pointer
+    ; s[4:5]+0x18 = sempahore pointer on HBM
+    s_load_dwordx2 s[18:19], s[4:5], 0x18
+
+    ; check if we are at workitem 0
+    ; v5 = workitem ID X
+    v_cmp_eq_u32_e32 vcc, 0, v5
+    s_waitcnt lgkmcnt(0)
+    ; backup EXEC mask
+    s_and_saveexec_b64 s[4:5], vcc
+    
+    ; workitem 0 in a workgroup atomically add 1 to the semaphore
+    v_mov_b32_e32 v2, 1
+    v_mov_b32_e32 v18, s18
+    v_mov_b32_e32 v19, s19
+    v_mov_b32_e32 v3, 288 + 1
+    flat_atomic_inc v2, v[18:19], v3 glc
+    s_waitcnt vmcnt(0)
+    
+    ; for workitems != 0 enter barrier directly
+    s_cbranch_execz GLOBAL_SYNC_LOOP_END
+    
+    ; for workgroups >= 32 enter barrier directly
+    s_cmpk_lt_u32_e32 s10, 32
+    s_cbranch_scc0 GLOBAL_SYNC_LOOP_END
+    
+    ; only workitem 0 on workgroup [0..31] participate in the spin loop
+    
+    ; use atomic add instructions to retrieve the # of workgroups finished
+GLOBAL_SYNC_LOOP:
+    v_mov_b32_e32 v2, 0
+    flat_atomic_add v2, v[18:19], v2 glc
+    s_waitcnt vmcnt(0)
+    v_cmp_eq_u32_e32 vcc, 288, v2
+    s_waitcnt vmcnt(0)
+    s_cbranch_vccz GLOBAL_SYNC_LOOP
+    
+    ; store the # of workgroups exit atomic spin loop to C for debugging
+    ;global_store_dword v[0:1], v2, off
+    ;s_waitcnt vmcnt(0)
+    
+    ; do an no-effect atomic add plus 0 once again
+    v_mov_b32_e32 v2, 0
+    flat_atomic_add v2, v[18:19], v2 glc
+    s_waitcnt vmcnt(0)
+
+GLOBAL_SYNC_LOOP_END:
+    s_barrier
+    
+    ; restore EXEC mask
+    s_or_saveexec_b64 s[4:5], s[4:5]
+    
+    ; clear the semaphore only on workgroup 0
+    ; s10 = workgroup ID X
+    s_cmpk_eq_u32_e32 s10, 0
+    s_cbranch_scc0 GLOBAL_SYNC_END
+    s_mov_b32 s20, 0
+    s_store_dword s20, s[18:19] glc
+    s_waitcnt vmcnt(0) lgkmcnt(0)
+
+GLOBAL_SYNC_END:
+"""
+  return global_sync_logic.split('\n')
+
+def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kernel, kernel_prologue_list, kernel_epilogue_list, guest_kernel_is_from_binary = False, call_graph = None, call_graph_isa = None, to_use_global_sync = False):
   # Switch guest kernel logic from call graph ISA if it's available
   # Call sites have been modified already
   if call_graph is not None:
@@ -562,10 +631,14 @@ def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kerne
   if guest_kernel_is_from_binary != True:
     kernel_code_dict[guest_kernel] = guest_peephold_modification(kernel_code_dict[guest_kernel])
 
-  # TBD: global sync logic between host kernel and guest kernel
+  # global sync logic between host kernel and guest kernel
+  if to_use_global_sync == True:
+    global_sync_logic = emit_global_sync_logic()
+  else:
+    global_sync_logic = []
   
   # Start fusion
-  kernel_code_dict[host_kernel] = context_save_logic + kernel_code_dict[host_kernel] + context_restore_logic + kernel_code_dict[guest_kernel]
+  kernel_code_dict[host_kernel] = context_save_logic + kernel_code_dict[host_kernel] + global_sync_logic + context_restore_logic + kernel_code_dict[guest_kernel]
   
   for line in kernel_prologue_list:
     print(line.rstrip())
@@ -661,7 +734,7 @@ def fuse_source_with_source(host_kernel, guest_kernel):
 
   fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kernel, kernel_prologue_list, kernel_epilogue_list)
   
-def fuse_source_with_dumper(host_kernel, guest_kernel):
+def fuse_source_with_binary(host_kernel, guest_kernel, to_use_global_sync = False):
   # Lists
   kernel_name_list = []
   
@@ -735,7 +808,7 @@ def fuse_source_with_dumper(host_kernel, guest_kernel):
   call_graph_isa = []
   [call_graph, call_graph_isa] = dumper.follow_call_graph(code_object_filename, guest_kernel, kernel_code_dict[guest_kernel], symbol_table, call_graph, call_graph_isa, True)
 
-  fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kernel, kernel_prologue_list, kernel_epilogue_list, True, call_graph, call_graph_isa)
+  fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kernel, kernel_prologue_list, kernel_epilogue_list, True, call_graph, call_graph_isa, to_use_global_sync)
 
 def abi_feature_analysis(kernel_metadata_dict, host_kernel, guest_kernel):
   # Retrieve information on the usage of ROCm ABI features
@@ -817,4 +890,4 @@ if __name__ == "__main__":
     # - guest kernel logic
 
     #fuse_source_with_source(HOST_KERNEL, GUEST_KERNEL)
-    fuse_source_with_dumper(HOST_KERNEL, RCCL_KERNEL_NAME)
+    fuse_source_with_binary(HOST_KERNEL, RCCL_KERNEL_NAME, True)

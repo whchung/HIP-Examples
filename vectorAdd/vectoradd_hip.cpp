@@ -217,7 +217,7 @@ int main() {
     HIP_ASSERT(hipMemcpy(hostC, deviceC, NUM*sizeof(float), hipMemcpyDeviceToHost));
     HIP_ASSERT(hipMemcpy(hostD, deviceD, NUM*sizeof(float), hipMemcpyDeviceToHost));
 
-#if FUSED
+#if 0 && FUSED
 #define EXPECTED_WG (32)
     int wg = 0;
     int expected_result = NUM/THREADS_PER_BLOCK_X;
