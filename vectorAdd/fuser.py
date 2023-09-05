@@ -494,74 +494,155 @@ def emit_modified_kernel_epilogue(kernel_metadata_dict, host_kernel, kernel_epil
   kernel_epilogue_list = modified_kernel_epilogue_list
   return kernel_epilogue_list
 
-def emit_global_sync_logic():
-  global_sync_logic = """
-; global sync logic
-GLOBAL_SYNC_ENTRY:
-    ; fetch semaphore pointer
-    ; s[4:5] = kernarg segment pointer
-    ; s[4:5]+0x18 = sempahore pointer on HBM
-    s_load_dwordx2 s[18:19], s[4:5], 0x18
+def emit_global_sync_logic(kernarg_segment_pointer_sgpr = [4, 5], semaphore_pointer_offset = 0x18, workitem_id_vgpr = [5], workgroup_id_sgpr = [10], host_kernel_workgroup_number = 288, guest_kernel_workgroup_number = 32, work_vgpr = [2, 3, 18, 19], work_sgpr = [20, 18, 19], to_emit_debug_output = False, debug_vgpr = [0, 1]):
+  # To dynamically emit global sync logic, following data are needed:
+  # - Kernarg segment pointer SGPRs
+  # - Offset to the semaphore pointer
+  # - VGPRs to hold workitem ID X (TBD: handle 2D/3D cases where Y/Z needs to be considered)
+  # - SGPRs to hold workgroup ID X (TBD: handle 2D/3D cases where Y/Z needs to be considered)
+  # - Workgroup # in the host kernel
+  # - Workgroup # in the guest kernel
+  # - 4 available VGPRs, the last 2 of them must be in consecutive numbers
+  # - 3 available SGPRs, the last 2 of them must be in consecutive numbers
+  global_sync_logic = []
+#; global sync logic
+#GLOBAL_SYNC_ENTRY:
+  global_sync_logic.append('; global sync logic')
+  global_sync_logic.append('GLOBAL_SYNC_ENTRY:')
 
-    ; check if we are at workitem 0
-    ; v5 = workitem ID X
-    v_cmp_eq_u32_e32 vcc, 0, v5
-    s_waitcnt lgkmcnt(0)
-    ; backup EXEC mask
-    s_and_saveexec_b64 s[4:5], vcc
-    
-    ; workitem 0 in a workgroup atomically add 1 to the semaphore
-    v_mov_b32_e32 v2, 1
-    v_mov_b32_e32 v18, s18
-    v_mov_b32_e32 v19, s19
-    v_mov_b32_e32 v3, 288 + 1
-    flat_atomic_inc v2, v[18:19], v3 glc
-    s_waitcnt vmcnt(0)
-    
-    ; for workitems != 0 enter barrier directly
-    s_cbranch_execz GLOBAL_SYNC_LOOP_END
-    
-    ; for workgroups >= 32 enter barrier directly
-    s_cmpk_lt_u32_e32 s10, 32
-    s_cbranch_scc0 GLOBAL_SYNC_LOOP_END
-    
-    ; only workitem 0 on workgroup [0..31] participate in the spin loop
-    
-    ; use atomic add instructions to retrieve the # of workgroups finished
-GLOBAL_SYNC_LOOP:
-    v_mov_b32_e32 v2, 0
-    flat_atomic_add v2, v[18:19], v2 glc
-    s_waitcnt vmcnt(0)
-    v_cmp_eq_u32_e32 vcc, 288, v2
-    s_waitcnt vmcnt(0)
-    s_cbranch_vccz GLOBAL_SYNC_LOOP
-    
-    ; store the # of workgroups exit atomic spin loop to C for debugging
-    ;global_store_dword v[0:1], v2, off
-    ;s_waitcnt vmcnt(0)
-    
-    ; do an no-effect atomic add plus 0 once again
-    v_mov_b32_e32 v2, 0
-    flat_atomic_add v2, v[18:19], v2 glc
-    s_waitcnt vmcnt(0)
+#    ; fetch semaphore pointer
+#    ; s[4:5] = kernarg segment pointer
+#    ; s[4:5]+0x18 = sempahore pointer on global memory
+#    s_load_dwordx2 s[18:19], s[4:5], 0x18
+  sgpr_kernarg_segment_pointer = 's[' + str(kernarg_segment_pointer_sgpr[0]) + ':' + str(kernarg_segment_pointer_sgpr[1]) + ']'
+  sgpr_semaphore = 's[' + str(work_sgpr[1]) + ':' + str(work_sgpr[2]) + ']'
+  semaphore_offset = str(hex(semaphore_pointer_offset))
+  global_sync_logic.append('\t; fetch semaphore pointer')
+  global_sync_logic.append('\t; ' + sgpr_kernarg_segment_pointer + ' = kernarg segment pointer')
+  global_sync_logic.append('\t; ' + sgpr_kernarg_segment_pointer + ' + ' + sgpr_semaphore + ' = semaphore pointer on global memory')
+  global_sync_logic.append('\ts_load_dwordx2 ' + sgpr_semaphore + ', ' + sgpr_kernarg_segment_pointer + ', ' + semaphore_offset)
+  global_sync_logic.append('\t')
 
-GLOBAL_SYNC_LOOP_END:
-    s_barrier
+#    ; check if we are at workitem 0
+#    ; v5 = workitem ID X
+#    v_cmp_eq_u32_e32 vcc, 0, v5
+#    s_waitcnt lgkmcnt(0)
+#    ; backup EXEC mask
+#    s_and_saveexec_b64 s[4:5], vcc
+  vgpr_workitem_id_x = 'v' + str(workitem_id_vgpr[0])
+  global_sync_logic.append('\t; check if we are at workitem 0')
+  global_sync_logic.append('\t; ' + vgpr_workitem_id_x + ' = workitem ID X')
+  global_sync_logic.append('\tv_cmp_eq_u32_e32 vcc, 0, ' + vgpr_workitem_id_x)
+  global_sync_logic.append('\ts_waitcnt lgkmcnt(0)')
+  global_sync_logic.append('\t; backup EXEC mask')
+  global_sync_logic.append('\ts_and_saveexec_b64 ' + sgpr_kernarg_segment_pointer + ', vcc')
+  global_sync_logic.append('\t')
     
-    ; restore EXEC mask
-    s_or_saveexec_b64 s[4:5], s[4:5]
+#    ; workitem 0 in a workgroup atomically increase 1 to the semaphore
+#    v_mov_b32_e32 v2, 1
+#    v_mov_b32_e32 v3, 288 + 1
+#    v_mov_b32_e32 v18, s18
+#    v_mov_b32_e32 v19, s19
+#    flat_atomic_inc v2, v[18:19], v3 glc
+#    s_waitcnt vmcnt(0)
+  vgpr_one = 'v' + str(work_vgpr[0])
+  vgpr_host_kernel_workgroup_number_plus_one = 'v' + str(work_vgpr[1])
+  sgpr_semaphore_lsb = 's' + str(work_sgpr[1])
+  vgpr_semaphore_lsb = 'v' + str(work_vgpr[2])
+  sgpr_semaphore_msb = 's' + str(work_sgpr[2])
+  vgpr_semaphore_msb = 'v' + str(work_vgpr[3])
+  vgpr_semaphore = 'v[' + str(work_vgpr[2]) + ':' + str(work_vgpr[3]) + ']'
+  global_sync_logic.append('\t; workitem 0 in a workgroup atomically increase 1 to the semaphore')
+  global_sync_logic.append('\tv_mov_b32_e32 ' + vgpr_one + ', 1')
+  global_sync_logic.append('\tv_mov_b32_e32 ' + vgpr_host_kernel_workgroup_number_plus_one + ', ' + str(host_kernel_workgroup_number + 1))
+  global_sync_logic.append('\tv_mov_b32_e32 ' + vgpr_semaphore_lsb + ', ' + sgpr_semaphore_lsb)
+  global_sync_logic.append('\tv_mov_b32_e32 ' + vgpr_semaphore_msb + ', ' + sgpr_semaphore_msb)
+  global_sync_logic.append('\tflat_atomic_inc ' + vgpr_one + ', ' + vgpr_semaphore + ', ' + vgpr_host_kernel_workgroup_number_plus_one + ' glc')
+  global_sync_logic.append('\ts_waitcnt vmcnt(0)')
+  global_sync_logic.append('\t')
     
-    ; clear the semaphore only on workgroup 0
-    ; s10 = workgroup ID X
-    s_cmpk_eq_u32_e32 s10, 0
-    s_cbranch_scc0 GLOBAL_SYNC_END
-    s_mov_b32 s20, 0
-    s_store_dword s20, s[18:19] glc
-    s_waitcnt vmcnt(0) lgkmcnt(0)
+#    ; for workitems != 0 enter barrier directly
+#    s_cbranch_execz GLOBAL_SYNC_LOOP_END
+#    ; for workgroups >= 32 enter barrier directly
+#    s_cmpk_lt_u32_e32 s10, 32
+#    s_cbranch_scc0 GLOBAL_SYNC_LOOP_END
+  sgpr_workgroup_id_x = 's' + str(workgroup_id_sgpr[0])
+  global_sync_logic.append('\t; for workitems != 0 enter barrier directly')
+  global_sync_logic.append('\ts_cbranch_execz GLOBAL_SYNC_LOOP_END')
+  global_sync_logic.append('\t; for workgroups >= ' + str(guest_kernel_workgroup_number) + ' enter barrier directly')
+  global_sync_logic.append('\ts_cmpk_lt_u32_e32 ' + sgpr_workgroup_id_x + ', ' + str(guest_kernel_workgroup_number))
+  global_sync_logic.append('\ts_cbranch_scc0 GLOBAL_SYNC_LOOP_END')
+  global_sync_logic.append('\t')
+    
+#    ; only workitem 0 in workgroups to be used by the guest kernel participate in the spin loop
+#    ; use atomic add instructions to retrieve the # of workgroups finished
+#GLOBAL_SYNC_LOOP:
+#    v_mov_b32_e32 v2, 0
+#    flat_atomic_add v2, v[18:19], v2 glc
+#    s_waitcnt vmcnt(0)
+#    v_cmp_eq_u32_e32 vcc, 288, v2
+#    s_waitcnt vmcnt(0)
+#    s_cbranch_vccz GLOBAL_SYNC_LOOP
+  global_sync_logic.append('\t; only workitem 0 in workgroups to be used by the guest kernel participate in the spin loop')
+  global_sync_logic.append('\t; use atomic add instructions to retrieve the # of workgroups finished')
+  global_sync_logic.append('GLOBAL_SYNC_LOOP:')
+  global_sync_logic.append('\tv_mov_b32_e32 ' + vgpr_one + ', 0')
+  global_sync_logic.append('\tflat_atomic_add ' + vgpr_one + ', ' + vgpr_semaphore + ', ' + vgpr_one + ' glc')
+  global_sync_logic.append('\ts_waitcnt vmcnt(0)')
+  global_sync_logic.append('\tv_cmp_eq_u32_e32 vcc, ' + str(host_kernel_workgroup_number) + ', ' + vgpr_one)
+  global_sync_logic.append('\ts_waitcnt vmcnt(0)')
+  global_sync_logic.append('\ts_cbranch_vccz GLOBAL_SYNC_LOOP')
+  global_sync_logic.append('\t')
+    
+  if to_emit_debug_output == True:
+    #; store the # of workgroups exit atomic spin loop to C for debugging
+    #global_store_dword v[0:1], v2, off
+    #s_waitcnt vmcnt(0)
+    vgpr_debug = 'v[' + str(debug_vgpr[0]) + ':' + str(debug_vgpr[1]) + ']'
+    global_sync_logic.append('\t; store the # of workgroups exit atomic spin loop to C for debugging')
+    global_sync_logic.append('\tglobal_store_dword ' + vgpr_debug + ', ' + vgpr_one + ', off')
+    global_sync_logic.append('\ts_waitcnt vmcnt(0)')
+    global_sync_logic.append('\t')
+  else: 
+    #; do an no-effect atomic add plus 0 once again
+    #v_mov_b32_e32 v2, 0
+    #flat_atomic_add v2, v[18:19], v2 glc
+    #s_waitcnt vmcnt(0)
+    global_sync_logic.append('\t; do an no-effect atomic add plus 0 once again')
+    global_sync_logic.append('\tv_mov_b32_e32 ' + vgpr_one + ', 0')
+    global_sync_logic.append('\tflat_atomic_add ' + vgpr_one + ', ' + vgpr_semaphore + ', ' + vgpr_one + ' glc')
+    global_sync_logic.append('\ts_waitcnt vmcnt(0)')
+    global_sync_logic.append('\t')
 
-GLOBAL_SYNC_END:
-"""
-  return global_sync_logic.split('\n')
+#GLOBAL_SYNC_LOOP_END:
+#    s_barrier
+#    ; restore EXEC mask
+#    s_or_saveexec_b64 s[4:5], s[4:5]
+    global_sync_logic.append('GLOBAL_SYNC_LOOP_END:')
+    global_sync_logic.append('s_barrier')
+    global_sync_logic.append('; restore EXEC mask')
+    global_sync_logic.append('s_or_saveexec_b64 ' + sgpr_kernarg_segment_pointer + ', ' + sgpr_kernarg_segment_pointer)
+    global_sync_logic.append('\t')
+    
+#    ; clear the semaphore only on workgroup 0
+#    ; s10 = workgroup ID X
+#    s_cmpk_eq_u32_e32 s10, 0
+#    s_cbranch_scc0 GLOBAL_SYNC_END
+#    s_mov_b32 s20, 0
+#    s_store_dword s20, s[18:19] glc
+#    s_waitcnt vmcnt(0) lgkmcnt(0)
+#GLOBAL_SYNC_END:
+    sgpr_zero = 's' + str(work_sgpr[0])
+    global_sync_logic.append('\t; clear the semaphore only on workgroup 0')
+    global_sync_logic.append('\t; ' + sgpr_workgroup_id_x + ' = workgroup ID X')
+    global_sync_logic.append('\ts_cmpk_eq_u32_e32 ' + sgpr_workgroup_id_x + ', 0')
+    global_sync_logic.append('\ts_cbranch_scc0 GLOBAL_SYNC_END')
+    global_sync_logic.append('\ts_mov_b32 ' + sgpr_zero + ', 0')
+    global_sync_logic.append('\ts_store_dword ' + sgpr_zero + ', ' + sgpr_semaphore + ' glc')
+    global_sync_logic.append('\ts_waitcnt vmcnt(0) lgkmcnt(0)')
+    global_sync_logic.append('\tGLOBAL_SYNC_END:')
+
+  return global_sync_logic
 
 def fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kernel, kernel_prologue_list, kernel_epilogue_list, guest_kernel_is_from_binary = False, call_graph = None, call_graph_isa = None, to_use_global_sync = False):
   # Switch guest kernel logic from call graph ISA if it's available
