@@ -815,7 +815,7 @@ def fuse_source_with_source(host_kernel, guest_kernel):
 
   fuse_kernel(kernel_code_dict, kernel_metadata_dict, host_kernel, guest_kernel, kernel_prologue_list, kernel_epilogue_list)
   
-def fuse_source_with_binary(host_kernel, guest_kernel, to_use_global_sync = False):
+def fuse_source_with_binary(host_kernel, guest_kernel, to_use_global_sync = True):
   # Lists
   kernel_name_list = []
   
@@ -971,4 +971,4 @@ if __name__ == "__main__":
     # - guest kernel logic
 
     #fuse_source_with_source(HOST_KERNEL, GUEST_KERNEL)
-    fuse_source_with_binary(HOST_KERNEL, RCCL_KERNEL_NAME, True)
+    fuse_source_with_binary(HOST_KERNEL, RCCL_KERNEL_NAME)
