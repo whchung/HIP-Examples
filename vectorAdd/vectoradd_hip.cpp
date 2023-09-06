@@ -53,8 +53,7 @@ THE SOFTWARE.
 #define THREADS_PER_BLOCK_X  256
 
 __global__ void 
-kernel1(const float* __restrict__ a, const float* __restrict__ b, float* __restrict__ c, int* semaphore
-                )
+kernel1(const float* __restrict__ a, const float* __restrict__ b, float* __restrict__ c)
 
   {
       int i = THREADS_PER_BLOCK_X * hipBlockIdx_x + hipThreadIdx_x;
@@ -95,13 +94,11 @@ int main() {
   float* hostB;
   float* hostC;
   float* hostD;
-  int* hostSema;
 
   float* deviceA;
   float* deviceB;
   float* deviceC;
   float* deviceD;
-  int* deviceSema;
 
   hipDeviceProp_t devProp;
   hipGetDeviceProperties(&devProp, 0);
@@ -125,7 +122,6 @@ int main() {
   hostB = (float*)malloc(NUM * sizeof(float));
   hostC = (float*)malloc(NUM * sizeof(float));
   hostD = (float*)malloc(NUM * sizeof(float));
-  hostSema = (int*)malloc(1 * sizeof(int));
   
   // initialize the input data
   for (i = 0; i < NUM; i++) {
@@ -134,17 +130,14 @@ int main() {
     hostC[i] = (float)0.0f;
     hostD[i] = (float)0.0f;
   }
-  *hostSema = 0;
   
   HIP_ASSERT(hipMalloc((void**)&deviceA, NUM * sizeof(float)));
   HIP_ASSERT(hipMalloc((void**)&deviceB, NUM * sizeof(float)));
   HIP_ASSERT(hipMalloc((void**)&deviceC, NUM * sizeof(float)));
   HIP_ASSERT(hipMalloc((void**)&deviceD, NUM * sizeof(float)));
-  HIP_ASSERT(hipMalloc((void**)&deviceSema, 1 * sizeof(int)));
   
   HIP_ASSERT(hipMemcpy(deviceA, hostA, NUM*sizeof(float), hipMemcpyHostToDevice));
   HIP_ASSERT(hipMemcpy(deviceB, hostB, NUM*sizeof(float), hipMemcpyHostToDevice));
-  HIP_ASSERT(hipMemcpy(deviceSema, hostSema, 1*sizeof(int), hipMemcpyHostToDevice));
 
   // Inititalize data for all reduce.
   const int all_reduce_size = 5120;
@@ -159,7 +152,7 @@ int main() {
                     dim3(WIDTH*HEIGHT/THREADS_PER_BLOCK_X),
                     dim3(THREADS_PER_BLOCK_X),
                     0, 0,
-                    deviceA ,deviceB ,deviceC, deviceSema
+                    deviceA ,deviceB ,deviceC
                     );
 
     ncclGroupStart();
@@ -173,18 +166,12 @@ int main() {
                     deviceC ,deviceD);
 #endif
 
-#if 0
-    HIP_ASSERT(hipMemcpy(deviceSema, hostSema, 1*sizeof(int), hipMemcpyHostToDevice));
-#endif
   }
 #if 0
   HIP_ASSERT(hipMemcpy(deviceC, hostC, NUM*sizeof(float), hipMemcpyHostToDevice));
   HIP_ASSERT(hipMemcpy(deviceD, hostD, NUM*sizeof(float), hipMemcpyHostToDevice));
 #endif
 
-#if 0
-    HIP_ASSERT(hipMemcpy(deviceSema, hostSema, 1*sizeof(int), hipMemcpyHostToDevice));
-#endif
   for (int outer_iter = 0; outer_iter < OUTER_ROUNDS; ++outer_iter) {
     usleep(500);
     HIP_ASSERT(hipEventRecord(startEvent, nullptr));
@@ -195,7 +182,7 @@ int main() {
                       dim3(WIDTH*HEIGHT/THREADS_PER_BLOCK_X),
                       dim3(THREADS_PER_BLOCK_X),
                       0, 0,
-                      deviceA ,deviceB ,deviceC, deviceSema
+                      deviceA ,deviceB ,deviceC
                       );
  
       ncclGroupStart();
@@ -217,7 +204,7 @@ int main() {
     HIP_ASSERT(hipMemcpy(hostC, deviceC, NUM*sizeof(float), hipMemcpyDeviceToHost));
     HIP_ASSERT(hipMemcpy(hostD, deviceD, NUM*sizeof(float), hipMemcpyDeviceToHost));
 
-#if 0 && FUSED
+#if DEBUG && FUSED
 #define EXPECTED_WG (32)
     int wg = 0;
     int expected_result = NUM/THREADS_PER_BLOCK_X;

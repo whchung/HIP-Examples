@@ -9,7 +9,7 @@ import liveness
 # Configuration
 INPUT_FILE = "vectoradd_hip-hip-amdgcn-amd-amdhsa-gfx90a.s"
 FUSED_MANIFEST_FILE = "fused_manifest.txt"
-HOST_KERNEL = '_Z7kernel1PKfS0_PfPi'
+HOST_KERNEL = '_Z7kernel1PKfS0_Pf'
 GUEST_KERNEL = '_Z7kernel2PKfPf'
 
 # Constants
@@ -494,7 +494,7 @@ def emit_modified_kernel_epilogue(kernel_metadata_dict, host_kernel, kernel_epil
   kernel_epilogue_list = modified_kernel_epilogue_list
   return kernel_epilogue_list
 
-def emit_global_sync_logic(kernarg_segment_pointer_sgpr = [4, 5], semaphore_pointer_offset = 0x18, workitem_id_vgpr = [5], workgroup_id_sgpr = [10], host_kernel_workgroup_number = 288, guest_kernel_workgroup_number = 32, work_vgpr = [2, 3, 18, 19], work_sgpr = [20, 18, 19], to_emit_debug_output = False, debug_vgpr = [0, 1]):
+def emit_global_sync_logic(kernarg_segment_pointer_sgpr = [4, 5], semaphore_pointer_offset = 0x30, workitem_id_vgpr = [5], workgroup_id_sgpr = [10], host_kernel_workgroup_number = 288, guest_kernel_workgroup_number = 32, work_vgpr = [2, 3, 18, 19], work_sgpr = [20, 18, 19], to_emit_debug_output = False, debug_vgpr = [0, 1]):
   # To dynamically emit global sync logic, following data are needed:
   # - Kernarg segment pointer SGPRs
   # - Offset to the semaphore pointer
@@ -519,7 +519,7 @@ def emit_global_sync_logic(kernarg_segment_pointer_sgpr = [4, 5], semaphore_poin
   semaphore_offset = str(hex(semaphore_pointer_offset))
   global_sync_logic.append('\t; fetch semaphore pointer')
   global_sync_logic.append('\t; ' + sgpr_kernarg_segment_pointer + ' = kernarg segment pointer')
-  global_sync_logic.append('\t; ' + sgpr_kernarg_segment_pointer + ' + ' + sgpr_semaphore + ' = semaphore pointer on global memory')
+  global_sync_logic.append('\t; ' + sgpr_kernarg_segment_pointer + ' + ' + semaphore_offset + ' = semaphore pointer on global memory')
   global_sync_logic.append('\ts_load_dwordx2 ' + sgpr_semaphore + ', ' + sgpr_kernarg_segment_pointer + ', ' + semaphore_offset)
   global_sync_logic.append('\t')
 
@@ -618,11 +618,11 @@ def emit_global_sync_logic(kernarg_segment_pointer_sgpr = [4, 5], semaphore_poin
 #    s_barrier
 #    ; restore EXEC mask
 #    s_or_saveexec_b64 s[4:5], s[4:5]
-    global_sync_logic.append('GLOBAL_SYNC_LOOP_END:')
-    global_sync_logic.append('s_barrier')
-    global_sync_logic.append('; restore EXEC mask')
-    global_sync_logic.append('s_or_saveexec_b64 ' + sgpr_kernarg_segment_pointer + ', ' + sgpr_kernarg_segment_pointer)
-    global_sync_logic.append('\t')
+  global_sync_logic.append('GLOBAL_SYNC_LOOP_END:')
+  global_sync_logic.append('\ts_barrier')
+  global_sync_logic.append('\t; restore EXEC mask')
+  global_sync_logic.append('\ts_or_saveexec_b64 ' + sgpr_kernarg_segment_pointer + ', ' + sgpr_kernarg_segment_pointer)
+  global_sync_logic.append('\t')
     
 #    ; clear the semaphore only on workgroup 0
 #    ; s10 = workgroup ID X
@@ -632,15 +632,15 @@ def emit_global_sync_logic(kernarg_segment_pointer_sgpr = [4, 5], semaphore_poin
 #    s_store_dword s20, s[18:19] glc
 #    s_waitcnt vmcnt(0) lgkmcnt(0)
 #GLOBAL_SYNC_END:
-    sgpr_zero = 's' + str(work_sgpr[0])
-    global_sync_logic.append('\t; clear the semaphore only on workgroup 0')
-    global_sync_logic.append('\t; ' + sgpr_workgroup_id_x + ' = workgroup ID X')
-    global_sync_logic.append('\ts_cmpk_eq_u32_e32 ' + sgpr_workgroup_id_x + ', 0')
-    global_sync_logic.append('\ts_cbranch_scc0 GLOBAL_SYNC_END')
-    global_sync_logic.append('\ts_mov_b32 ' + sgpr_zero + ', 0')
-    global_sync_logic.append('\ts_store_dword ' + sgpr_zero + ', ' + sgpr_semaphore + ' glc')
-    global_sync_logic.append('\ts_waitcnt vmcnt(0) lgkmcnt(0)')
-    global_sync_logic.append('\tGLOBAL_SYNC_END:')
+  sgpr_zero = 's' + str(work_sgpr[0])
+  global_sync_logic.append('\t; clear the semaphore only on workgroup 0')
+  global_sync_logic.append('\t; ' + sgpr_workgroup_id_x + ' = workgroup ID X')
+  global_sync_logic.append('\ts_cmpk_eq_u32_e32 ' + sgpr_workgroup_id_x + ', 0')
+  global_sync_logic.append('\ts_cbranch_scc0 GLOBAL_SYNC_END')
+  global_sync_logic.append('\ts_mov_b32 ' + sgpr_zero + ', 0')
+  global_sync_logic.append('\ts_store_dword ' + sgpr_zero + ', ' + sgpr_semaphore + ' glc')
+  global_sync_logic.append('\ts_waitcnt vmcnt(0) lgkmcnt(0)')
+  global_sync_logic.append('GLOBAL_SYNC_END:')
 
   return global_sync_logic
 
