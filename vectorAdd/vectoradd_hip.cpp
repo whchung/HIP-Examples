@@ -42,7 +42,7 @@ THE SOFTWARE.
 #define HEIGHT    1024
 
 #define NUM       (WIDTH*HEIGHT)
-#define WARMUP    (4)
+#define WARMUP    (64)
 #define ROUNDS    (64)
 
 #define THREADS_PER_BLOCK_X  256

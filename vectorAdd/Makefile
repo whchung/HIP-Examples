@@ -26,10 +26,10 @@ CXX=$(HIPCC)
 $(EXECUTABLE): $(OBJECTS) 
 	$(HIPCC) $(OBJECTS) -o $@
 
-fuse: $(EXECUTABLE) test
+#./fuser.py $(FILENAME)-hip-amdgcn-amd-amdhsa-$(GFXARCH).s manifest > fused_manifest.txt
+#./fuser.py $(FILENAME)-hip-amdgcn-amd-amdhsa-$(GFXARCH).s > fused.s
+fuse: $(EXECUTABLE) #test
 	@echo "\n==== Kernel Fusion ====\n"
-	./fuser.py $(FILENAME)-hip-amdgcn-amd-amdhsa-$(GFXARCH).s manifest > fused_manifest.txt
-	./fuser.py $(FILENAME)-hip-amdgcn-amd-amdhsa-$(GFXARCH).s > fused.s
 	./assemble.sh
 	AMD_KERNEL_FUSION=1 AMD_KERNEL_FUSION_HOST=`head -1 fused_manifest.txt` AMD_KERNEL_FUSION_GUEST=`tail -1 fused_manifest.txt` LD_PRELOAD=$(HIP_LIBRARY) ./fused.exe
 	@AMD_KERNEL_FUSION=1 AMD_LOG_LEVEL=4 AMD_KERNEL_FUSION_HOST=`head -1 fused_manifest.txt` AMD_KERNEL_FUSION_GUEST=`tail -1 fused_manifest.txt` LD_PRELOAD=$(HIP_LIBRARY) ./fused.exe 1>/dev/null 2>run.log
