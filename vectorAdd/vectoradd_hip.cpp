@@ -43,6 +43,12 @@ THE SOFTWARE.
 #define THREADS_PER_BLOCK_Y  16
 #define THREADS_PER_BLOCK_Z  1
 
+#if EXTERNAL_KERNELS
+extern
+__global__ void 
+vectoradd_float4(float* __restrict__ a, const float* __restrict__ b, const float* __restrict__ c, int width, int height);
+#endif
+
 __global__ void 
 vectoradd_float(float* __restrict__ a, const float* __restrict__ b, const float* __restrict__ c, int width, int height) {
     int x = hipBlockDim_x * hipBlockIdx_x + hipThreadIdx_x;
@@ -160,6 +166,14 @@ int main() {
                   dim3(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y),
                   0, 0,
                   deviceA ,deviceB ,deviceC ,WIDTH ,HEIGHT);
+
+#if EXTERNAL_KERNELS
+  hipLaunchKernelGGL(vectoradd_float4, 
+                  dim3(WIDTH/THREADS_PER_BLOCK_X, HEIGHT/THREADS_PER_BLOCK_Y),
+                  dim3(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y),
+                  0, 0,
+                  deviceA ,deviceB ,deviceC ,WIDTH ,HEIGHT);
+#endif
 
   HIP_ASSERT(hipMemcpy(hostA, deviceA, NUM*sizeof(float), hipMemcpyDeviceToHost));
 

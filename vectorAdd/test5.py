@@ -611,12 +611,15 @@ def create_amdgpu_codeobject(input_stream, output_stream, selected_kernel_list):
     # section table entry: strtab
     create_amdgpu_codeobject_section_table_entry(output_stream, strtab_section_header, strtab_section_offset, len(strtab_section), 0)
 
-input_filename = 'vectoradd_hip.exe-offset8192-size34456.co'
-output_filename = 'blah'
-# Re-order kernels
-#selected_kernel_list = ['_Z16vectormul_float3PfPKfS1_ii', '_Z16vectormul_float2PfPKfS1_ii', '_Z15vectormul_floatPfPKfS1_ii', '_Z15vectoradd_floatPfPKfS1_ii']
-# Re-order and remove unused kernels.
-selected_kernel_list = ['_Z16vectormul_float3PfPKfS1_ii', '_Z15vectoradd_floatPfPKfS1_ii', '_Z15vectormul_floatPfPKfS1_ii']
-with open(sys.argv[1], 'rb') as input_stream:
-    with open(sys.argv[2], 'wb') as output_stream:
-       create_amdgpu_codeobject(input_stream, output_stream, selected_kernel_list)
+# Input files
+input_file_list = ['external.o-offset8192-size13976.co', 'vectoradd_hip.o-offset8192-size14120.co']
+# Output file
+output_file = 'blah'
+# Selected kernel list
+# Re-order and trim total number of kernels
+selected_kernel_list = ['_Z16vectormul_float3PfPKfS1_ii', '_Z15vectoradd_floatPfPKfS1_ii', '_Z16vectoradd_float4PfPKfS1_ii', '_Z15vectormul_floatPfPKfS1_ii']
+
+# TBD main logic needs to be tuned
+#with open(sys.argv[1], 'rb') as input_stream:
+#    with open(sys.argv[2], 'wb') as output_stream:
+#       create_amdgpu_codeobject(input_stream, output_stream, selected_kernel_list)
