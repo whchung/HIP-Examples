@@ -44,33 +44,50 @@ THE SOFTWARE.
 #define THREADS_PER_BLOCK_Z  1
 
 __global__ void 
-vectoradd_float(float* __restrict__ a, const float* __restrict__ b, const float* __restrict__ c, int width, int height) 
+vectoradd_float(float* __restrict__ a, const float* __restrict__ b, const float* __restrict__ c, int width, int height) {
+    int x = hipBlockDim_x * hipBlockIdx_x + hipThreadIdx_x;
+    int y = hipBlockDim_y * hipBlockIdx_y + hipThreadIdx_y;
 
-  {
- 
-      int x = hipBlockDim_x * hipBlockIdx_x + hipThreadIdx_x;
-      int y = hipBlockDim_y * hipBlockIdx_y + hipThreadIdx_y;
+    int i = y * width + x;
+    if ( i < (width * height)) {
+      a[i] = b[i] + c[i];
+    }
+}
 
-      int i = y * width + x;
-      if ( i < (width * height)) {
-        a[i] = b[i] + c[i];
-      }
+#if TWO_KERNELS 
+__global__ void
+vectormul_float(float* __restrict__ a, const float* __restrict__ b, const float* __restrict__ c, int width, int height) {
+    int x = hipBlockDim_x * hipBlockIdx_x + hipThreadIdx_x;
+    int y = hipBlockDim_y * hipBlockIdx_y + hipThreadIdx_y;
 
+    int i = y * width + x;
+    if ( i < (width * height)) {
+      a[i] = b[i] * c[i];
+    }
+}
+#endif
 
+#if FOUR_KERNELS 
+__global__ void
+vectormul_float2(float* __restrict__ a, const float* __restrict__ b, const float* __restrict__ c, int width, int height) {
+    int x = hipBlockDim_x * hipBlockIdx_x + hipThreadIdx_x;
+    int y = hipBlockDim_y * hipBlockIdx_y + hipThreadIdx_y;
 
-  }
+    int i = y * width + x;
+    if ( i < (width * height)) {
+      a[i] = b[i] * c[i];
+    }
+}
 
-#if 0
-__kernel__ void vectoradd_float(float* a, const float* b, const float* c, int width, int height) {
+__global__ void
+vectormul_float3(float* __restrict__ a, const float* __restrict__ b, const float* __restrict__ c, int width, int height) {
+    int x = hipBlockDim_x * hipBlockIdx_x + hipThreadIdx_x;
+    int y = hipBlockDim_y * hipBlockIdx_y + hipThreadIdx_y;
 
-  
-  int x = blockDimX * blockIdx.x + threadIdx.x;
-  int y = blockDimY * blockIdy.y + threadIdx.y;
-
-  int i = y * width + x;
-  if ( i < (width * height)) {
-    a[i] = b[i] + c[i];
-  }
+    int i = y * width + x;
+    if ( i < (width * height)) {
+      a[i] = b[i] * c[i];
+    }
 }
 #endif
 
@@ -117,13 +134,32 @@ int main() {
   HIP_ASSERT(hipMemcpy(deviceB, hostB, NUM*sizeof(float), hipMemcpyHostToDevice));
   HIP_ASSERT(hipMemcpy(deviceC, hostC, NUM*sizeof(float), hipMemcpyHostToDevice));
 
+#if TWO_KERNELS
+  hipLaunchKernelGGL(vectormul_float,
+                  dim3(WIDTH/THREADS_PER_BLOCK_X, HEIGHT/THREADS_PER_BLOCK_Y),
+                  dim3(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y),
+                  0, 0,
+                  deviceA ,deviceB ,deviceC ,WIDTH ,HEIGHT);
+#endif
+
+#if FOUR_KERNELS
+  //hipLaunchKernelGGL(vectormul_float2,
+  //                dim3(WIDTH/THREADS_PER_BLOCK_X, HEIGHT/THREADS_PER_BLOCK_Y),
+  //                dim3(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y),
+  //                0, 0,
+  //                deviceA ,deviceB ,deviceC ,WIDTH ,HEIGHT);
+  hipLaunchKernelGGL(vectormul_float3,
+                  dim3(WIDTH/THREADS_PER_BLOCK_X, HEIGHT/THREADS_PER_BLOCK_Y),
+                  dim3(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y),
+                  0, 0,
+                  deviceA ,deviceB ,deviceC ,WIDTH ,HEIGHT);
+#endif
 
   hipLaunchKernelGGL(vectoradd_float, 
                   dim3(WIDTH/THREADS_PER_BLOCK_X, HEIGHT/THREADS_PER_BLOCK_Y),
                   dim3(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y),
                   0, 0,
                   deviceA ,deviceB ,deviceC ,WIDTH ,HEIGHT);
-
 
   HIP_ASSERT(hipMemcpy(hostA, deviceA, NUM*sizeof(float), hipMemcpyDeviceToHost));
 
