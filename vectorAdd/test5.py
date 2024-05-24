@@ -80,10 +80,8 @@ def create_amdgpu_codeobject_elf_header(stream, section_table_offset):
 
     # e_flags
     # Hard-coded as:
-    # - gfx900
-    # - xnack any
-    # - sramecc unsupported
-    e_flags = (EF_AMDGPU_FEATURE_XNACK_ANY_V4 | EF_AMDGPU_FEATURE_SRAMECC_UNSUPPORTED_V4 | EF_AMDGPU_MACH_AMDGCN_GFX900).to_bytes(4, byteorder='little')
+    # amdgcn-amd-amdhsa--gfx942:sramecc+:xnack-
+    e_flags = (EF_AMDGPU_FEATURE_XNACK_OFF_V4 | EF_AMDGPU_FEATURE_SRAMECC_ON_V4 | EF_AMDGPU_MACH_AMDGCN_GFX942).to_bytes(4, byteorder='little')
 
     # e_ehsize
     e_ehsize = (64).to_bytes(2, byteorder='little')
@@ -348,10 +346,10 @@ def create_amdgpu_codeobject(input_stream, output_stream, selected_kernel_list):
         #print('Kernel descriptor offset relative to .rodata section: 0x%x' % (0x40 * i))
         kernel_descriptor = rodata_section[i * KERNEL_DESCRIPTOR_SIZE : (i + 1) * KERNEL_DESCRIPTOR_SIZE]
         #print(kernel_descriptor)
-        kernel_descriptor_offset = rodata_section_header['sh_offset'] + 0x40 * i
+        kernel_descriptor_offset = rodata_section_header['sh_addr'] + 0x40 * i
         kernel_code_entry_byte_offset = int.from_bytes(kernel_descriptor[16:24], byteorder='little')
         kernel_code_offset = kernel_descriptor_offset + kernel_code_entry_byte_offset
-        kernel_code_relative_offset  = kernel_code_offset - text_section_header['sh_offset']
+        kernel_code_relative_offset  = kernel_code_offset - text_section_header['sh_addr']
         #print('Kernel code offset: 0x%x' % kernel_code_offset)
         #print('Kernel code offset relative to .text section: 0x%x' % kernel_code_relative_offset)
         kernel_code_size = symbol_offset_map[kernel_code_offset]['size']
@@ -492,7 +490,7 @@ def create_amdgpu_codeobject(input_stream, output_stream, selected_kernel_list):
             symbol_section_index = 2 # .rodata section index in the new ELF binary
 
         # If it's inside .text section, find the original index, find the kernel name, find the new index, compute the new offset
-        elif (symbol_offset >= text_section_header['sh_offset']) and (symbol_offset < text_section_header['sh_offset'] + text_section_header['sh_size']):
+        elif (symbol_offset >= text_section_header['sh_addr']) and (symbol_offset < text_section_header['sh_addr'] + text_section_header['sh_size']):
             #print('Symbol: %s' % symbol.name)
             # Find the original kernel index
             min_offset = sys.maxsize
@@ -600,7 +598,7 @@ def create_amdgpu_codeobject(input_stream, output_stream, selected_kernel_list):
     create_amdgpu_codeobject_section_table_entry(output_stream, rodata_section_header, rodata_section_offset, len(new_rodata_section))
 
     # section table entry: text
-    create_amdgpu_codeobject_section_table_entry(output_stream, text_section_header, text_section_offset, len(new_text_section))
+    create_amdgpu_codeobject_section_table_entry(output_stream, text_section_header, text_section_offset, len(new_text_section), text_section_offset + 0x1000)
 
     # section table entry: symtab
     create_amdgpu_codeobject_section_table_entry(output_stream, symtab_section_header, symtab_section_offset, len(symtab_section), 0, 6, 3)
@@ -611,15 +609,9 @@ def create_amdgpu_codeobject(input_stream, output_stream, selected_kernel_list):
     # section table entry: strtab
     create_amdgpu_codeobject_section_table_entry(output_stream, strtab_section_header, strtab_section_offset, len(strtab_section), 0)
 
-# Input files
-input_file_list = ['external.o-offset8192-size13976.co', 'vectoradd_hip.o-offset8192-size14120.co']
-# Output file
-output_file = 'blah'
 # Selected kernel list
-# Re-order and trim total number of kernels
-selected_kernel_list = ['_Z16vectormul_float3PfPKfS1_ii', '_Z15vectoradd_floatPfPKfS1_ii', '_Z16vectoradd_float4PfPKfS1_ii', '_Z15vectormul_floatPfPKfS1_ii']
+selected_kernel_list = ['_Z15vectoradd_floatPfPKfS1_ii', '_Z15vectormul_floatPfPKfS1_ii']
 
-# TBD main logic needs to be tuned
-#with open(sys.argv[1], 'rb') as input_stream:
-#    with open(sys.argv[2], 'wb') as output_stream:
-#       create_amdgpu_codeobject(input_stream, output_stream, selected_kernel_list)
+with open(sys.argv[1], 'rb') as input_stream:
+    with open(sys.argv[2], 'wb') as output_stream:
+       create_amdgpu_codeobject(input_stream, output_stream, selected_kernel_list)
