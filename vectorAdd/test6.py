@@ -80,10 +80,8 @@ def create_amdgpu_codeobject_elf_header(stream, section_table_offset):
 
     # e_flags
     # Hard-coded as:
-    # - gfx900
-    # - xnack any
-    # - sramecc unsupported
-    e_flags = (EF_AMDGPU_FEATURE_XNACK_ANY_V4 | EF_AMDGPU_FEATURE_SRAMECC_UNSUPPORTED_V4 | EF_AMDGPU_MACH_AMDGCN_GFX900).to_bytes(4, byteorder='little')
+    # amdgcn-amd-amdhsa--gfx942:sramecc+:xnack-
+    e_flags = (EF_AMDGPU_FEATURE_XNACK_OFF_V4 | EF_AMDGPU_FEATURE_SRAMECC_ON_V4 | EF_AMDGPU_MACH_AMDGCN_GFX942).to_bytes(4, byteorder='little')
 
     # e_ehsize
     e_ehsize = (64).to_bytes(2, byteorder='little')
@@ -301,9 +299,10 @@ class CodeObjectFile:
             if section.name == section_name:
                 return section.data(), section['sh_addralign'], section
 
-    def __init__(self, filename, elf_file):
+    def __init__(self, filename, elf_file, is_assembly = False):
         self.filename = filename
         self.elf_file = elf_file
+        self.is_assembly = is_assembly
         #self.dump_code_object_info()
 
         #####################################
@@ -350,10 +349,16 @@ class CodeObjectFile:
                     self.symbol_note_map[amdgpu_kernel['.name']] = amdgpu_kernel
 
         # Build a symbol offset to size/name map
+        # In an assembly kernel, kernel code size will also be computed
         self.symbol_offset_map = {}
+        self.kernel_code_size = 0
         for i in range(self.symtab_section_header.num_symbols()):
             symbol = self.symtab_section_header.get_symbol(i)
             self.symbol_offset_map[symbol['st_value']] = {'size': symbol['st_size'], 'name': symbol.name}
+
+            # For assembly-based kernel, kernel size is marked with 'label_ASM_End'
+            if self.is_assembly and symbol.name == 'label_ASM_End':
+                kernel_code_size = symbol['st_value']
 
         #print(self.symbol_offset_map)
 
@@ -364,17 +369,18 @@ class CodeObjectFile:
             #print('Kernel descriptor offset relative to .rodata section: 0x%x' % (0x40 * i))
             kernel_descriptor = self.rodata_section[i * KERNEL_DESCRIPTOR_SIZE : (i + 1) * KERNEL_DESCRIPTOR_SIZE]
             #print(kernel_descriptor)
-            kernel_descriptor_offset = self.rodata_section_header['sh_offset'] + 0x40 * i
+            kernel_descriptor_offset = self.rodata_section_header['sh_addr'] + 0x40 * i
             kernel_code_entry_byte_offset = int.from_bytes(kernel_descriptor[16:24], byteorder='little')
             kernel_code_offset = kernel_descriptor_offset + kernel_code_entry_byte_offset
-            kernel_code_relative_offset  = kernel_code_offset - self.text_section_header['sh_offset']
+            kernel_code_relative_offset  = kernel_code_offset - self.text_section_header['sh_addr']
             #print('Kernel code offset: 0x%x' % kernel_code_offset)
             #print('Kernel code offset relative to .text section: 0x%x' % kernel_code_relative_offset)
-            kernel_code_size = self.symbol_offset_map[kernel_code_offset]['size']
+            if self.is_assembly == False:
+                kernel_code_size = self.symbol_offset_map[kernel_code_offset]['size']
             #print('Kernel code size: %d' % kernel_code_size)
             kernel_code_name = self.symbol_offset_map[kernel_code_offset]['name']
-            #print('Kernel name: %s' % kernel_code_name)
-            #kernel_descriptor_name = self.symbol_offset_map[kernel_descriptor_offset]['name']
+            print('Kernel name: %s' % kernel_code_name)
+            kernel_descriptor_name = self.symbol_offset_map[kernel_descriptor_offset]['name']
             #print('Kernel descriptor name: %s' % kernel_descriptor_name)
             #print(self.text_section[kernel_code_relative_offset : kernel_code_relative_offset + kernel_code_size])
             #print('Kernel metadata:')
@@ -383,13 +389,13 @@ class CodeObjectFile:
 
             self.kernel_map[kernel_code_name] = { 'index': i, 'offset': kernel_code_offset, 'code': self.text_section[kernel_code_relative_offset : kernel_code_relative_offset + kernel_code_size], 'metadata': self.symbol_note_map[kernel_code_name], 'descriptor': kernel_descriptor }
 
-def create_amdgpu_codeobject(input_filename_list, input_stream_list, output_stream, selected_kernel_list):
+def create_amdgpu_codeobject(input_filename_list, input_stream_list, input_is_assembly_list, output_stream, selected_kernel_list):
     code_object_list = []
     for i in range(len(input_filename_list)):
         input_filename = input_filename_list[i]
         input_stream = input_stream_list[i]
         elf_file = ELFFile(input_stream)
-        code_object_file = CodeObjectFile(input_filename, elf_file)
+        code_object_file = CodeObjectFile(input_filename, elf_file, input_is_assembly_list[i])
         code_object_list.append(code_object_file)
 
     map_kernel_name_code_object = {}
@@ -399,7 +405,7 @@ def create_amdgpu_codeobject(input_filename_list, input_stream_list, output_stre
         for code_object in code_object_list:
             if code_object.has_kernel(kernel_name):
                 map_kernel_name_code_object[kernel_name] = code_object
-                #kernel = code_object.get_kernel(kernel_name)
+                kernel = code_object.get_kernel(kernel_name)
                 #print('Code Object File: %s' % code_object.filename)
                 #print('Kernel descriptor: %s' % str(kernel['descriptor']))
                 #print('Kernel code: %s' % str(kernel['code']))
@@ -422,7 +428,8 @@ def create_amdgpu_codeobject(input_filename_list, input_stream_list, output_stre
     # .note section
     new_amdgpu_metadata = {}
     new_amdgpu_metadata['amdhsa.kernels'] = []
-    new_amdgpu_metadata['amdhsa.target'] = common_amdgpu_metadata['amdhsa.target']
+    if 'amdhsa.target' in common_amdgpu_metadata:
+        new_amdgpu_metadata['amdhsa.target'] = common_amdgpu_metadata['amdhsa.target']
     new_amdgpu_metadata['amdhsa.version'] = common_amdgpu_metadata['amdhsa.version']
     for kernel_name in selected_kernel_list:
         code_object = map_kernel_name_code_object[kernel_name]
@@ -572,7 +579,7 @@ def create_amdgpu_codeobject(input_filename_list, input_stream_list, output_stre
                 symbol_section_index = 2 # .rodata section index in the new ELF binary
 
             # If it's inside .text section, find the original index, find the kernel name, find the new index, compute the new offset
-            elif (symbol_offset >= code_object.text_section_header['sh_offset']) and (symbol_offset < code_object.text_section_header['sh_offset'] + code_object.text_section_header['sh_size']):
+            elif (symbol_offset >= code_object.text_section_header['sh_addr']) and (symbol_offset < code_object.text_section_header['sh_addr'] + code_object.text_section_header['sh_size']):
                 #print('Symbol: %s' % symbol.name)
                 # Find the original kernel index
                 min_offset = sys.maxsize
@@ -681,7 +688,7 @@ def create_amdgpu_codeobject(input_filename_list, input_stream_list, output_stre
     create_amdgpu_codeobject_section_table_entry(output_stream, first_code_object.rodata_section_header, rodata_section_offset, len(new_rodata_section))
 
     # section table entry: text
-    create_amdgpu_codeobject_section_table_entry(output_stream, first_code_object.text_section_header, text_section_offset, len(new_text_section))
+    create_amdgpu_codeobject_section_table_entry(output_stream, first_code_object.text_section_header, text_section_offset, len(new_text_section), text_section_offset + 0x1000)
 
     # section table entry: symtab
     create_amdgpu_codeobject_section_table_entry(output_stream, first_code_object.symtab_section_header, symtab_section_offset, len(new_symtab_section), 0, 6, 3)
@@ -694,14 +701,18 @@ def create_amdgpu_codeobject(input_filename_list, input_stream_list, output_stre
 
 
 # Input files
-input_filename_list = ['external.o-offset8192-size13976.co', 'vectoradd_hip.o-offset8192-size14120.co']
+input_filename_list = ['external.o-offset8192-size9216.co', 'vectoradd_hip.o-offset8192-size11120.co', 'gemm.co', 'gemm2.co' ]
+input_is_assembly_list = [ False, False, True, True ]
+#input_filename_list = ['gemm.co']
+#input_is_assembly_list = [ True ]
 
 # Output file
 output_filename = 'blah.co'
 
 # Selected kernel list
 # Re-order and trim total number of kernels
-selected_kernel_list = ['_Z16vectormul_float3PfPKfS1_ii', '_Z15vectoradd_floatPfPKfS1_ii', '_Z16vectoradd_float4PfPKfS1_ii', '_Z15vectormul_floatPfPKfS1_ii']
+selected_kernel_list = ['_Z16vectormul_float3PfPKfS1_ii', '_Z15vectoradd_floatPfPKfS1_ii', '_Z16vectoradd_float4PfPKfS1_ii', '_Z15vectormul_floatPfPKfS1_ii', 'Cijk_Ailk_Bjlk_F8H_HSS_BH_Bias_AS_SAB_SAV_UserArgs_MT64x240x32_MI16x16x1_SN_LDSB1_AFC1_AFEM1_AFEM1_ASEM1_CLR1_CADS0_EPS0_GRVWA8_GRVWB2_GSUAMB_ISA940_IU1_K1_LBSPPA512_LBSPPB1920_LBSPPM0_LPA16_LPB16_LPM0_LRVW4_LWPMn1_MIAV0_MIWT1_15_MO40_NTn1_NTA0_NTB0_NTC0_NTD0_NTM0_NEPBS16_NLCA1_NLCB15_ONLL0_PGR2_PLR1_PKA1_SIA3_SS1_SPO0_SRVW0_SSO0_SVW1_TLDS0_USFGROn1_VSn1_VWA1_VWB1_WSGRA1_WSGRB1_WS64_WG64_4_1', 'Cijk_Ailk_Bjlk_F8H_HSS_BH_Bias_AS_SAB_SAV_UserArgs_MT192x16x32_MI16x16x1_SN_LDSB0_AFC1_AFEM1_AFEM1_ASEM1_CLR1_CADS0_EPS0_GRVWA8_GRVWB2_GSUAMB_ISA942_IU1_K1_LBSPPA1536_LBSPPB128_LBSPPM0_LPA16_LPB16_LPM0_LRVW4_LWPMn1_MIAV0_MIWT3_1_MO40_NTn1_NTA0_NTB0_NTC0_NTD0_NTM0_NEPBS16_NLCA3_NLCB1_ONLL0_PGR2_PLR1_PKA1_SIA3_SS1_SPO0_SRVW0_SSO0_SVW1_TLDS0_USFGROn1_VSn1_VWA1_VWB1_WSGRA1_WSGRB1_WS64_WG64_4_1' ]
+#selected_kernel_list = ['Cijk_Ailk_Bjlk_F8H_HSS_BH_Bias_AS_SAB_SAV_UserArgs_MT64x240x32_MI16x16x1_SN_LDSB1_AFC1_AFEM1_AFEM1_ASEM1_CLR1_CADS0_EPS0_GRVWA8_GRVWB2_GSUAMB_ISA940_IU1_K1_LBSPPA512_LBSPPB1920_LBSPPM0_LPA16_LPB16_LPM0_LRVW4_LWPMn1_MIAV0_MIWT1_15_MO40_NTn1_NTA0_NTB0_NTC0_NTD0_NTM0_NEPBS16_NLCA1_NLCB15_ONLL0_PGR2_PLR1_PKA1_SIA3_SS1_SPO0_SRVW0_SSO0_SVW1_TLDS0_USFGROn1_VSn1_VWA1_VWB1_WSGRA1_WSGRB1_WS64_WG64_4_1']
 
 input_stream_list = []
 for filename in input_filename_list:
@@ -710,4 +721,4 @@ for filename in input_filename_list:
 
 output_stream = open(output_filename, 'wb')
 
-create_amdgpu_codeobject(input_filename_list, input_stream_list, output_stream, selected_kernel_list)
+create_amdgpu_codeobject(input_filename_list, input_stream_list, input_is_assembly_list, output_stream, selected_kernel_list)

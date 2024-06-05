@@ -610,7 +610,7 @@ def create_amdgpu_codeobject(input_stream, output_stream, selected_kernel_list):
     create_amdgpu_codeobject_section_table_entry(output_stream, strtab_section_header, strtab_section_offset, len(strtab_section), 0)
 
 # Selected kernel list
-selected_kernel_list = ['_Z15vectoradd_floatPfPKfS1_ii', '_Z15vectormul_floatPfPKfS1_ii']
+selected_kernel_list = ['_Z16vectormul_float3PfPKfS1_ii', '_Z15vectoradd_floatPfPKfS1_ii', '_Z15vectormul_floatPfPKfS1_ii']
 
 with open(sys.argv[1], 'rb') as input_stream:
     with open(sys.argv[2], 'wb') as output_stream:
