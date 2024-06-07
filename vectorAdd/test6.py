@@ -418,6 +418,7 @@ def create_amdgpu_codeobject(input_filename_list, input_stream_list, input_is_as
                 #print('Code Object File: %s' % code_object.filename)
                 #print('Kernel descriptor: %s' % str(kernel['descriptor']))
                 #print('Kernel code: %s' % str(kernel['code']))
+                #print('Kernel code length: %d' % len(kernel['code']))
                 #print('Kernel metadata: %s' % str(msgpack.packb(kernel['metadata'])))
 
     #####################################
@@ -494,6 +495,7 @@ def create_amdgpu_codeobject(input_filename_list, input_stream_list, input_is_as
         new_symtab_section_offset_list.append(len(new_symtab_section))
         new_symtab_section_length_list.append(len(code_object.symtab_section))
         new_symtab_section += code_object.symtab_section
+    new_symtab_section = bytearray(new_symtab_section)
     #print('New .symtab section:')
     #print(new_symtab_section)
     #print(new_symtab_section_offset_list)
@@ -551,6 +553,7 @@ def create_amdgpu_codeobject(input_filename_list, input_stream_list, input_is_as
     for i in range(len(code_object_list)):
         code_object = code_object_list[i]
         #print('Code Object: %s' % code_object.filename)
+        #print('Number of symbols: %d' % code_object.symtab_section_header.num_symbols())
         for j in range(code_object.symtab_section_header.num_symbols()):
             symbol = code_object.symtab_section_header.get_symbol(j)
 
@@ -635,8 +638,11 @@ def create_amdgpu_codeobject(input_filename_list, input_stream_list, input_is_as
 
             #print('Original Name: %s, name index: %d, shndx: %s, value: 0x%x, size: %d' % (symbol.name, symbol['st_name'], symbol['st_shndx'], symbol['st_value'], symbol['st_size']))
             #print('Modified Name: %s, name index: %d, shndx: %d, value: 0x%x, size: %d' % (symbol.name, symbol_name_index, symbol_section_index, symbol_offset, symbol['st_size']))
+
             # Modify st_name, st_offset, st_shndx
-            new_symtab_section = new_symtab_section[:new_symtab_section_offset_list[i] + 24 * j] + symbol_name_index.to_bytes(4, byteorder='little') + new_symtab_section[new_symtab_section_offset_list[i] + 24 * j + 5 : new_symtab_section_offset_list[i] + 24 * j + 7] + symbol_section_index.to_bytes(2, byteorder='little') + symbol_offset.to_bytes(8, byteorder='little') + new_symtab_section[new_symtab_section_offset_list[i] + 24 * j + 8 + 8:]
+            new_symtab_section_offset = new_symtab_section_offset_list[i] + 24 * j
+            updated_content = symbol_name_index.to_bytes(4, byteorder='little') + new_symtab_section[new_symtab_section_offset + 5 : new_symtab_section_offset + 7] + symbol_section_index.to_bytes(2, byteorder='little') + symbol_offset.to_bytes(8, byteorder='little')
+            new_symtab_section[new_symtab_section_offset : new_symtab_section_offset + 16] = updated_content
 
     #####################################
     # Re-compute kernel code entry byte offset
@@ -652,7 +658,7 @@ def create_amdgpu_codeobject(input_filename_list, input_stream_list, input_is_as
                     new_kernel_code_entry_byte_offset = (text_section_offset + new_kernel_relative_offset) - (rodata_section_offset + 0x40 * i)
                     break
 
-        print('New kernel code entry byte offset: %s' % str(hex(new_kernel_code_entry_byte_offset)))
+        #print('New kernel code entry byte offset: %s' % str(hex(new_kernel_code_entry_byte_offset)))
         kernel_descriptor = kernel_descriptor[:16] + new_kernel_code_entry_byte_offset.to_bytes(8, byteorder='little') + kernel_descriptor[24:]
         new_rodata_section = new_rodata_section[: i * KERNEL_DESCRIPTOR_SIZE] + kernel_descriptor + new_rodata_section[(i + 1) * KERNEL_DESCRIPTOR_SIZE:]
 
