@@ -349,18 +349,25 @@ class CodeObjectFile:
                     self.symbol_note_map[amdgpu_kernel['.name']] = amdgpu_kernel
 
         # Build a symbol offset to size/name map
-        # In an assembly kernel, kernel code size will also be computed
+        # In an assembly kernel, kernel code sizes will also be computed
         self.symbol_offset_map = {}
-        self.kernel_code_size = 0
+        kernel_code_start_offset = 0
+        kernel_code_end_offset = 0
+        kernel_code_size_list = []
         for i in range(self.symtab_section_header.num_symbols()):
             symbol = self.symtab_section_header.get_symbol(i)
             self.symbol_offset_map[symbol['st_value']] = {'size': symbol['st_size'], 'name': symbol.name}
 
             # For assembly-based kernel, kernel size is marked with 'label_ASM_End'
+            if self.is_assembly and symbol.name == 'label_ASM_Start':
+                kernel_code_start_offset = symbol['st_value']
             if self.is_assembly and symbol.name == 'label_ASM_End':
-                kernel_code_size = symbol['st_value']
+                kernel_code_end_offset = symbol['st_value']
+                kernel_code_size_list.append(kernel_code_end_offset - kernel_code_start_offset)
 
         #print(self.symbol_offset_map)
+        #print('Kernels: %d' % len(kernel_code_size_list))
+        #print(kernel_code_size_list)
 
         # Enumerate each kernel
         self.kernel_map = {}
@@ -377,9 +384,11 @@ class CodeObjectFile:
             #print('Kernel code offset relative to .text section: 0x%x' % kernel_code_relative_offset)
             if self.is_assembly == False:
                 kernel_code_size = self.symbol_offset_map[kernel_code_offset]['size']
+            else:
+                kernel_code_size = kernel_code_size_list[i]
             #print('Kernel code size: %d' % kernel_code_size)
             kernel_code_name = self.symbol_offset_map[kernel_code_offset]['name']
-            print('Kernel name: %s' % kernel_code_name)
+            #print('Kernel name: %s' % kernel_code_name)
             kernel_descriptor_name = self.symbol_offset_map[kernel_descriptor_offset]['name']
             #print('Kernel descriptor name: %s' % kernel_descriptor_name)
             #print(self.text_section[kernel_code_relative_offset : kernel_code_relative_offset + kernel_code_size])
@@ -701,18 +710,31 @@ def create_amdgpu_codeobject(input_filename_list, input_stream_list, input_is_as
 
 
 # Input files
-input_filename_list = ['external.o-offset8192-size9216.co', 'vectoradd_hip.o-offset8192-size11120.co', 'gemm.co', 'gemm2.co' ]
-input_is_assembly_list = [ False, False, True, True ]
+#input_filename_list = ['external.o-offset8192-size9216.co', 'vectoradd_hip.o-offset8192-size11120.co', 'gemm.co', 'gemm2.co' ]
+#input_is_assembly_list = [ False, False, True, True ]
+
 #input_filename_list = ['gemm.co']
-#input_is_assembly_list = [ True ]
+#input_filename_list = ['gemm2.co']
+input_filename_list = ['gemm3.co']
+input_is_assembly_list = [ True ]
 
 # Output file
 output_filename = 'blah.co'
 
 # Selected kernel list
 # Re-order and trim total number of kernels
-selected_kernel_list = ['_Z16vectormul_float3PfPKfS1_ii', '_Z15vectoradd_floatPfPKfS1_ii', '_Z16vectoradd_float4PfPKfS1_ii', '_Z15vectormul_floatPfPKfS1_ii', 'Cijk_Ailk_Bjlk_F8H_HSS_BH_Bias_AS_SAB_SAV_UserArgs_MT64x240x32_MI16x16x1_SN_LDSB1_AFC1_AFEM1_AFEM1_ASEM1_CLR1_CADS0_EPS0_GRVWA8_GRVWB2_GSUAMB_ISA940_IU1_K1_LBSPPA512_LBSPPB1920_LBSPPM0_LPA16_LPB16_LPM0_LRVW4_LWPMn1_MIAV0_MIWT1_15_MO40_NTn1_NTA0_NTB0_NTC0_NTD0_NTM0_NEPBS16_NLCA1_NLCB15_ONLL0_PGR2_PLR1_PKA1_SIA3_SS1_SPO0_SRVW0_SSO0_SVW1_TLDS0_USFGROn1_VSn1_VWA1_VWB1_WSGRA1_WSGRB1_WS64_WG64_4_1', 'Cijk_Ailk_Bjlk_F8H_HSS_BH_Bias_AS_SAB_SAV_UserArgs_MT192x16x32_MI16x16x1_SN_LDSB0_AFC1_AFEM1_AFEM1_ASEM1_CLR1_CADS0_EPS0_GRVWA8_GRVWB2_GSUAMB_ISA942_IU1_K1_LBSPPA1536_LBSPPB128_LBSPPM0_LPA16_LPB16_LPM0_LRVW4_LWPMn1_MIAV0_MIWT3_1_MO40_NTn1_NTA0_NTB0_NTC0_NTD0_NTM0_NEPBS16_NLCA3_NLCB1_ONLL0_PGR2_PLR1_PKA1_SIA3_SS1_SPO0_SRVW0_SSO0_SVW1_TLDS0_USFGROn1_VSn1_VWA1_VWB1_WSGRA1_WSGRB1_WS64_WG64_4_1' ]
+
+# external.co + vectoradd_hip.co + gemm.co + gemm2.co
+#selected_kernel_list = ['_Z16vectormul_float3PfPKfS1_ii', '_Z15vectoradd_floatPfPKfS1_ii', '_Z16vectoradd_float4PfPKfS1_ii', '_Z15vectormul_floatPfPKfS1_ii', 'Cijk_Ailk_Bjlk_F8H_HSS_BH_Bias_AS_SAB_SAV_UserArgs_MT64x240x32_MI16x16x1_SN_LDSB1_AFC1_AFEM1_AFEM1_ASEM1_CLR1_CADS0_EPS0_GRVWA8_GRVWB2_GSUAMB_ISA940_IU1_K1_LBSPPA512_LBSPPB1920_LBSPPM0_LPA16_LPB16_LPM0_LRVW4_LWPMn1_MIAV0_MIWT1_15_MO40_NTn1_NTA0_NTB0_NTC0_NTD0_NTM0_NEPBS16_NLCA1_NLCB15_ONLL0_PGR2_PLR1_PKA1_SIA3_SS1_SPO0_SRVW0_SSO0_SVW1_TLDS0_USFGROn1_VSn1_VWA1_VWB1_WSGRA1_WSGRB1_WS64_WG64_4_1', 'Cijk_Ailk_Bjlk_F8H_HSS_BH_Bias_AS_SAB_SAV_UserArgs_MT192x16x32_MI16x16x1_SN_LDSB0_AFC1_AFEM1_AFEM1_ASEM1_CLR1_CADS0_EPS0_GRVWA8_GRVWB2_GSUAMB_ISA942_IU1_K1_LBSPPA1536_LBSPPB128_LBSPPM0_LPA16_LPB16_LPM0_LRVW4_LWPMn1_MIAV0_MIWT3_1_MO40_NTn1_NTA0_NTB0_NTC0_NTD0_NTM0_NEPBS16_NLCA3_NLCB1_ONLL0_PGR2_PLR1_PKA1_SIA3_SS1_SPO0_SRVW0_SSO0_SVW1_TLDS0_USFGROn1_VSn1_VWA1_VWB1_WSGRA1_WSGRB1_WS64_WG64_4_1' ]
+
+# gemm.co
 #selected_kernel_list = ['Cijk_Ailk_Bjlk_F8H_HSS_BH_Bias_AS_SAB_SAV_UserArgs_MT64x240x32_MI16x16x1_SN_LDSB1_AFC1_AFEM1_AFEM1_ASEM1_CLR1_CADS0_EPS0_GRVWA8_GRVWB2_GSUAMB_ISA940_IU1_K1_LBSPPA512_LBSPPB1920_LBSPPM0_LPA16_LPB16_LPM0_LRVW4_LWPMn1_MIAV0_MIWT1_15_MO40_NTn1_NTA0_NTB0_NTC0_NTD0_NTM0_NEPBS16_NLCA1_NLCB15_ONLL0_PGR2_PLR1_PKA1_SIA3_SS1_SPO0_SRVW0_SSO0_SVW1_TLDS0_USFGROn1_VSn1_VWA1_VWB1_WSGRA1_WSGRB1_WS64_WG64_4_1']
+
+# gemm2.co
+#selected_kernel_list = ['Cijk_Ailk_Bjlk_F8H_HSS_BH_Bias_AS_SAB_SAV_UserArgs_MT192x16x32_MI16x16x1_SN_LDSB0_AFC1_AFEM1_AFEM1_ASEM1_CLR1_CADS0_EPS0_GRVWA8_GRVWB2_GSUAMB_ISA942_IU1_K1_LBSPPA1536_LBSPPB128_LBSPPM0_LPA16_LPB16_LPM0_LRVW4_LWPMn1_MIAV0_MIWT3_1_MO40_NTn1_NTA0_NTB0_NTC0_NTD0_NTM0_NEPBS16_NLCA3_NLCB1_ONLL0_PGR2_PLR1_PKA1_SIA3_SS1_SPO0_SRVW0_SSO0_SVW1_TLDS0_USFGROn1_VSn1_VWA1_VWB1_WSGRA1_WSGRB1_WS64_WG64_4_1']
+
+# gemm3.co
+selected_kernel_list = ['Cijk_Ailk_Bljk_HHS_BH_Bias_AS_SAV_UserArgs_MT256x16x16_MI16x16x1_SN_LDSB0_AFC1_AFEM8_AFEM1_ASEM1_CLR0_CADS0_EPS0_GRVWA8_GRVWB1_GSUAMB_ISA942_IU1_K1_LBSPPA2048_LBSPPB128_LBSPPM0_LPA0_LPB4_LPM0_LRVW4_LWPMn1_MIAV0_MIWT4_1_MO40_NTn1_NTA0_NTB0_NTC0_NTD0_NTM0_NEPBS0_NLCA1_NLCB1_ONLL1_PGR0_PLR0_PKA1_SIA3_SS1_SPO0_SRVW0_SSO0_SVW4_TLDS1_USFGROn1_VSn1_VWA4_VWB1_WSGRA0_WSGRB0_WS64_WG64_4_1']
 
 input_stream_list = []
 for filename in input_filename_list:
