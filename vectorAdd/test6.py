@@ -641,7 +641,7 @@ def create_amdgpu_codeobject(input_filename_list, input_stream_list, input_is_as
 
             # Modify st_name, st_offset, st_shndx
             new_symtab_section_offset = new_symtab_section_offset_list[i] + 24 * j
-            updated_content = symbol_name_index.to_bytes(4, byteorder='little') + new_symtab_section[new_symtab_section_offset + 5 : new_symtab_section_offset + 7] + symbol_section_index.to_bytes(2, byteorder='little') + symbol_offset.to_bytes(8, byteorder='little')
+            updated_content = symbol_name_index.to_bytes(4, byteorder='little') + new_symtab_section[new_symtab_section_offset + 4 : new_symtab_section_offset + 6] + symbol_section_index.to_bytes(2, byteorder='little') + symbol_offset.to_bytes(8, byteorder='little')
             new_symtab_section[new_symtab_section_offset : new_symtab_section_offset + 16] = updated_content
 
     #####################################
